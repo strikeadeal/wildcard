@@ -101,8 +101,9 @@ called at one card — opponents may catch a missed call (2-card penalty).
 
 `vite-plugin-pwa`: web manifest, icon set, service worker precaching the app shell
 (instant load, works offline to the home screen; play requires a connection).
-Update flow: new deploy prompts a "refresh for update" toast — protocol version
-mismatch between host and guest surfaces an explicit "update your app" error.
+Update flow: the service worker auto-updates on next load (no toast) — protocol
+version mismatch between host and guest surfaces an explicit "update your app"
+error.
 
 ## Visual design
 
