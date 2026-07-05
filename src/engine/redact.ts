@@ -34,7 +34,7 @@ export function redact(state: GameState, playerId: string): PlayerView {
       state.wild4PlayedBy !== playerId,
     canCallUno: state.phase !== 'roundEnd' && me.hand.length <= 2 && !me.saidUno,
     catchableIds: state.players
-      .filter((p) => p.id !== playerId && p.id !== state.players[state.turn]!.id && p.hand.length === 1 && !p.saidUno)
+      .filter((p) => p.id !== playerId && p.hand.length === 1 && !p.saidUno)
       .map((p) => p.id),
     mustChooseColor: state.phase === 'chooseColor' && myTurn,
     mustChooseSwapTarget: state.phase === 'chooseSwapTarget' && myTurn
