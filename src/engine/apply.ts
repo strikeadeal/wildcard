@@ -215,8 +215,9 @@ function catchUno(s: GameState, idx: number, targetId: string): ApplyResult {
 function challengeWildFour(s: GameState, idx: number): ApplyResult {
   if (s.phase !== 'play' || s.turn !== idx) return err('Not your turn');
   if (s.pendingType !== 'wild4' || s.pendingDraw !== 4) return err('Nothing to challenge');
-  const accusedId = s.wild4PlayedBy!;
-  const accused = s.players[playerIndex(s, accusedId)]!;
+  const accusedId = s.wild4PlayedBy;
+  const accused = accusedId ? s.players[playerIndex(s, accusedId)] : undefined;
+  if (!accused) return err('Nothing to challenge');
   const prevColor = s.wild4PrevColor!;
   const guilty = accused.hand.some((c) => c.color === prevColor);
   clearPending(s);

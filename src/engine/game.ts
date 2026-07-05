@@ -64,3 +64,30 @@ export function startNextRound(state: GameState): GameState {
   deal(next);
   return next;
 }
+
+/** Deal a departed player out: cards to the deck bottom, seat removed. Pure. */
+export function removePlayer(state: GameState, playerId: string): GameState {
+  const s = structuredClone(state);
+  const idx = playerIndex(s, playerId);
+  if (idx === -1) return s;
+  const wasTheirTurn = s.turn === idx;
+  const [gone] = s.players.splice(idx, 1);
+  s.deck.unshift(...gone!.hand);
+  if (s.wild4PlayedBy === playerId) {
+    s.wild4PlayedBy = null; // pending penalty stands, but there is no one to challenge
+  }
+  if (s.players.length === 1) {
+    s.phase = 'roundEnd';
+    s.roundWinner = s.players[0]!.id;
+    return s;
+  }
+  if (idx < s.turn) s.turn -= 1;
+  else if (wasTheirTurn) {
+    s.turn = s.turn % s.players.length;
+    if (s.direction === -1) s.turn = (s.turn - 1 + s.players.length) % s.players.length;
+    if (s.phase === 'chooseColor' || s.phase === 'chooseSwapTarget') s.phase = 'play';
+    s.hasDrawnThisTurn = false;
+    s.drawnCardId = null;
+  } else if (s.turn >= s.players.length) s.turn = 0;
+  return s;
+}
