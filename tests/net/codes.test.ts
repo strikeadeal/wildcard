@@ -20,6 +20,7 @@ describe('room codes', () => {
     expect(normalizeCode('abcde')).toBe('ABCDE');
     expect(normalizeCode('ab')).toBeNull();
     expect(normalizeCode('ABC!E')).toBeNull();
+    expect(normalizeCode('AB1OE')).toBeNull(); // 1 and O are not in the alphabet
     // full join-link paste also works
     expect(normalizeCode('https://x.github.io/uno/#/join/ABCDE')).toBe('ABCDE');
   });

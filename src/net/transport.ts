@@ -17,7 +17,13 @@ export function createLoopbackPair(): [Connection, Connection] {
   const make = (): LoopEnd => {
     let onMsg: (msg: unknown) => void = () => {};
     let onCls: () => void = () => {};
-    let open = true;
+    let open = true;      // gates send/deliver
+    let notified = false; // guarantees onClose fires at most once
+    const notifyClose = () => {
+      if (notified) return;
+      notified = true;
+      onCls();
+    };
     const self: LoopEnd = {
       send(msg: unknown) {
         if (!open) return;
@@ -29,10 +35,17 @@ export function createLoopbackPair(): [Connection, Connection] {
       close() {
         if (!open) return;
         open = false;
-        queueMicrotask(() => self._peer!._closed());
+        // Like real transports: notify the peer AND fire our own close event.
+        queueMicrotask(() => {
+          self._peer!._closed();
+          notifyClose();
+        });
       },
       _deliver(msg: unknown) { if (open) onMsg(msg); },
-      _closed() { if (open) { open = false; onCls(); } }
+      _closed() {
+        open = false;
+        notifyClose();
+      }
     };
     return self;
   };
