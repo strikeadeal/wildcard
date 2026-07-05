@@ -29,8 +29,9 @@ export function apply(state: GameState, playerId: string, action: Action): Apply
     case 'challengeWildFour':
       return challengeWildFour(s, idx);
     case 'jumpIn':
+      return jumpIn(s, idx, action.cardId, action.chosenColor, action.swapTargetId);
     case 'chooseSwapTarget':
-      return err('Not implemented yet'); // Tasks 6 replaces these lines with handlers
+      return chooseSwapTarget(s, idx, action.targetId);
   }
 }
 
@@ -91,8 +92,20 @@ function commitPlay(
       s.pendingDraw += 4;
       s.pendingType = 'wild4';
       return afterWild(s, idx, chosenColor);
-    default: // number card — seven-zero handling added in Task 6
+    default: // number card
       if (winsIfEmpty(s, idx)) return done(s);
+      if (s.config.sevenZero && card.value === '7') {
+        if (swapTargetId) return swapHands(s, idx, swapTargetId);
+        s.phase = 'chooseSwapTarget';
+        s.hasDrawnThisTurn = false;
+        s.drawnCardId = null;
+        return done(s);
+      }
+      if (s.config.sevenZero && card.value === '0') {
+        rotateHands(s);
+        advanceTurn(s);
+        return done(s);
+      }
       advanceTurn(s);
       return done(s);
   }
@@ -133,8 +146,14 @@ function drawCard(s: GameState, idx: number): ApplyResult {
   }
 
   if (s.hasDrawnThisTurn) return err('Already drew this turn');
-  const drawn = drawFromDeck(s, player.id, 1); // draw-until-playable added in Task 6
-  const card = drawn[drawn.length - 1];
+  let card = drawFromDeck(s, player.id, 1)[0];
+  if (s.config.drawUntilPlayable) {
+    while (card && !isPlayable(card, s)) {
+      const more = drawFromDeck(s, player.id, 1)[0];
+      if (!more) break;
+      card = more;
+    }
+  }
   if (!card || !isPlayable(card, s)) {
     advanceTurn(s); // nothing playable — turn ends automatically
     return done(s);
@@ -209,4 +228,51 @@ function challengeWildFour(s: GameState, idx: number): ApplyResult {
   drawFromDeck(s, s.players[idx]!.id, 6);
   advanceTurn(s);
   return done(s);
+}
+
+function jumpIn(
+  s: GameState, idx: number, cardId: number,
+  chosenColor?: Color, swapTargetId?: string
+): ApplyResult {
+  if (!s.config.jumpIn) return err('Jump-in is not enabled');
+  if (s.phase !== 'play') return err('Cannot jump in right now');
+  if (s.turn === idx) return err('It is your turn — play normally');
+  if (s.pendingDraw > 0) return err('Cannot jump in on a penalty');
+  const top = s.discard[s.discard.length - 1];
+  if (!top || top.color === null) return err('Cannot jump in on a wild');
+  const card = s.players[idx]!.hand.find((c) => c.id === cardId);
+  if (!card) return err('Card not in hand');
+  if (card.color !== top.color || card.value !== top.value) {
+    return err('Jump-in requires an identical card');
+  }
+  s.turn = idx;
+  s.hasDrawnThisTurn = false;
+  s.drawnCardId = null;
+  return commitPlay(s, idx, cardId, chosenColor, swapTargetId);
+}
+
+function chooseSwapTarget(s: GameState, idx: number, targetId: string): ApplyResult {
+  if (s.phase !== 'chooseSwapTarget') return err('No swap to choose');
+  if (s.turn !== idx) return err('Not your choice');
+  return swapHands(s, idx, targetId);
+}
+
+function swapHands(s: GameState, idx: number, targetId: string): ApplyResult {
+  const me = s.players[idx]!;
+  const target = s.players[playerIndex(s, targetId)];
+  if (!target || target.id === me.id) return err('Pick another player to swap with');
+  [me.hand, target.hand] = [target.hand, me.hand];
+  for (const p of s.players) p.saidUno = false;
+  s.phase = 'play';
+  advanceTurn(s);
+  return done(s);
+}
+
+function rotateHands(s: GameState): void {
+  const n = s.players.length;
+  const hands = s.players.map((p) => p.hand);
+  for (let i = 0; i < n; i++) {
+    s.players[(((i + s.direction) % n) + n) % n]!.hand = hands[i]!;
+  }
+  for (const p of s.players) p.saidUno = false;
 }
