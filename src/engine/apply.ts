@@ -23,11 +23,14 @@ export function apply(state: GameState, playerId: string, action: Action): Apply
     case 'nextRound':
       return s.phase === 'roundEnd' ? done(startNextRound(s)) : err('Round is not over');
     case 'callUno':
+      return callUno(s, idx);
     case 'catchUno':
+      return catchUno(s, idx, action.targetId);
     case 'challengeWildFour':
+      return challengeWildFour(s, idx);
     case 'jumpIn':
     case 'chooseSwapTarget':
-      return err('Not implemented yet'); // Tasks 5-6 replace these lines with handlers
+      return err('Not implemented yet'); // Tasks 6 replaces these lines with handlers
   }
 }
 
@@ -170,4 +173,40 @@ function winsIfEmpty(s: GameState, idx: number): boolean {
     (sum, p) => (p.id === winner.id ? sum : sum + handPoints(p.hand)), 0
   );
   return true;
+}
+
+function callUno(s: GameState, idx: number): ApplyResult {
+  if (s.phase === 'roundEnd') return err('Round is over');
+  const player = s.players[idx]!;
+  if (player.hand.length > 2) return err('You have too many cards to call');
+  player.saidUno = true;
+  return done(s);
+}
+
+function catchUno(s: GameState, idx: number, targetId: string): ApplyResult {
+  if (s.phase === 'roundEnd') return err('Round is over');
+  const target = s.players[playerIndex(s, targetId)];
+  if (!target) return err('Unknown player');
+  if (target.id === s.players[idx]!.id) return err('Cannot catch yourself');
+  if (target.hand.length !== 1 || target.saidUno) return err('Nothing to catch');
+  drawFromDeck(s, target.id, 2);
+  return done(s);
+}
+
+function challengeWildFour(s: GameState, idx: number): ApplyResult {
+  if (s.phase !== 'play' || s.turn !== idx) return err('Not your turn');
+  if (s.pendingType !== 'wild4' || s.pendingDraw !== 4) return err('Nothing to challenge');
+  const accusedId = s.wild4PlayedBy!;
+  const accused = s.players[playerIndex(s, accusedId)]!;
+  const prevColor = s.wild4PrevColor!;
+  const guilty = accused.hand.some((c) => c.color === prevColor);
+  clearPending(s);
+  if (guilty) {
+    drawFromDeck(s, accusedId, 4);
+    // challenger keeps the turn and plays on the chosen color
+    return done(s);
+  }
+  drawFromDeck(s, s.players[idx]!.id, 6);
+  advanceTurn(s);
+  return done(s);
 }
