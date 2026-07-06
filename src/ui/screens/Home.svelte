@@ -100,7 +100,7 @@
 
   label { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; color: var(--muted); }
   label input { color: var(--text); }
-  .primary { background: var(--card-red); font-size: 1.05rem; }
+  .primary { background: var(--accent); font-size: 1.05rem; }
 
   .or {
     display: flex;

@@ -40,5 +40,5 @@
   }
   h2 { font-size: 1.7rem; }
   p { color: var(--muted); margin: 0; line-height: 1.5; }
-  .primary { background: var(--card-green); }
+  .primary { background: var(--btn-green); }
 </style>

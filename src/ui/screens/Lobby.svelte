@@ -124,5 +124,5 @@
   .hint.centered { text-align: center; margin: 0; }
 
   .foot { display: flex; flex-direction: column; gap: 10px; }
-  .primary { background: var(--card-green); }
+  .primary { background: var(--btn-green); }
 </style>

@@ -73,6 +73,6 @@
   .lead .score { color: var(--brass); }
   .you .who { color: var(--brass); font-weight: 700; }
 
-  .primary { background: var(--card-green); }
+  .primary { background: var(--btn-green); }
   .hint { color: var(--muted); margin: 0; text-align: center; }
 </style>

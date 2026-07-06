@@ -15,15 +15,21 @@
   --surface: #1a3128;
   --surface-2: #21402f;
 
-  --accent: #e0443a;
+  /* Dedicated BUTTON colors — deliberately darker than the card-face suit
+     colors below so white button labels clear WCAG AA (4.5:1). */
+  --accent: #b8342b;
+  --btn-green: #1c7a44;
   --brass: #e6b84b;
 
-  /* The four suits, tuned to pop off the felt while holding AA. */
+  /* The four suits, tuned to pop off the felt while holding AA on card
+     faces. Not for button backgrounds with white text — see --accent /
+     --btn-green above for those. */
   --card-red: #e0443a;
   --card-yellow: #f5c542;
   --card-green: #37b06b;
   --card-blue: #3f86e0;
   --ink-yellow: #4a3600; /* readable ink for text on the yellow suit */
+  --ink-dark: #050a08; /* readable ink for text on the red/green/blue suits */
 
   --radius: 12px;
   --shadow-card: 0 6px 16px rgb(0 0 0 / 0.4), 0 1px 0 rgb(255 255 255 / 0.06) inset;

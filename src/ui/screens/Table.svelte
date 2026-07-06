@@ -220,7 +220,7 @@
     font-size: 0.82rem;
     padding: 3px 12px;
     border-radius: 999px;
-    color: #fff;
+    color: var(--ink-dark);
   }
   .colordot.red { background: var(--card-red); }
   .colordot.yellow { background: var(--card-yellow); color: var(--ink-yellow); }

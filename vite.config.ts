@@ -20,8 +20,8 @@ export default defineConfig({
         description: 'Play the classic card game online with friends. No ads, no accounts.',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#16181d',
-        theme_color: '#16181d',
+        background_color: '#123026',
+        theme_color: '#123026',
         start_url: './',
         scope: './',
         icons: [
