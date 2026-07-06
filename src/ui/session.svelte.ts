@@ -50,6 +50,13 @@ class Session {
   private destroyPeer: (() => void) | null = null;
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Bumped by leave(). In-flight connects capture the epoch at entry and
+   * bail (destroying any late-won peer) if it changed — a cancel during
+   * connect must not resurrect the session, and a timeout-loser peer must
+   * not leak.
+   */
+  private epoch = 0;
 
   constructor() {
     if (typeof location !== 'undefined') {
@@ -90,16 +97,26 @@ class Session {
       onError: (message: string) => this.showToast(message)
     };
     this.host = new HostSession(name.trim() || 'Host', DEFAULT_RULES, events);
+    const epoch = this.epoch;
     for (let attempt = 0; attempt < 2; attempt++) {
       const code = newRoomCode();
+      const raw = hostRoom(code, (conn) => this.host?.attach(conn));
       try {
-        const room = await withTimeout(hostRoom(code, (conn) => this.host!.attach(conn)));
+        const room = await withTimeout(raw);
+        if (this.epoch !== epoch) {
+          // User left while connecting — do not resurrect the session.
+          room.destroy();
+          return;
+        }
         this.destroyPeer = room.destroy;
         this.roomCode = code;
         this.lobby = this.host.lobbyInfo();
         this.screen = 'lobby';
         return;
       } catch (e) {
+        // If the timeout lost the race but the peer opens later, reap it.
+        raw.then((r) => r.destroy()).catch(() => {});
+        if (this.epoch !== epoch) return;
         const message = (e as Error).message;
         if (message !== 'code-taken') {
           this.fail('Could not create a room', 'The connection service is unreachable. Check your internet connection — some strict networks (offices, schools) block game connections entirely.');
@@ -107,6 +124,7 @@ class Session {
         }
       }
     }
+    if (this.epoch !== epoch) return;
     this.fail('Could not create a room', 'Could not claim a room code. Please try again.');
   }
 
@@ -120,8 +138,15 @@ class Session {
     this.lastJoin = { code, name };
     this.screen = 'connecting';
     this.isHost = false;
+    const epoch = this.epoch;
+    const raw = peerJoin(code);
     try {
-      const { conn, destroy } = await withTimeout(peerJoin(code));
+      const { conn, destroy } = await withTimeout(raw);
+      if (this.epoch !== epoch) {
+        // User left while connecting — do not resurrect the session.
+        destroy();
+        return;
+      }
       this.destroyPeer = destroy;
       this.roomCode = code;
       this.guest = new GuestSession(conn, name.trim() || 'Player', localStorage.getItem(tokenKey(code)), {
@@ -148,6 +173,9 @@ class Session {
         }
       });
     } catch (e) {
+      // If the timeout lost the race but the peer opens later, reap it.
+      raw.then((r) => r.destroy()).catch(() => {});
+      if (this.epoch !== epoch) return;
       const message = (e as Error).message;
       this.fail(
         message === 'not-found' ? 'Room not found' : 'Could not connect',
@@ -184,6 +212,7 @@ class Session {
   }
 
   leave(): void {
+    this.epoch++;
     this.destroyPeer?.();
     this.guest?.close();
     this.host = null;
