@@ -3,9 +3,7 @@
   import RuleToggles from '../components/RuleToggles.svelte';
 
   const lobby = $derived(session.lobby);
-  const canStart = $derived(
-    (lobby?.players.filter((p) => p.connected).length ?? 0) >= 2
-  );
+  const canStart = $derived(session.lobby?.canStart ?? false);
   let copied = $state(false);
 
   const joinLink = $derived(
@@ -91,6 +89,6 @@
   }
   li.off span { color: var(--muted); }
   em { color: var(--muted); font-style: normal; font-size: 0.85em; }
-  .small { min-height: 36px; padding: 0 10px; }
+  .small { min-height: 44px; padding: 0 10px; font-size: 0.85em; }
   .hint { color: var(--muted); margin: 0; }
 </style>

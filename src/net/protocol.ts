@@ -13,6 +13,7 @@ export interface LobbyInfo {
   hostId: string;
   config: RuleConfig;
   started: boolean;
+  canStart: boolean;
 }
 
 export type ClientMsg =

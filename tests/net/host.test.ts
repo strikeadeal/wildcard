@@ -64,6 +64,20 @@ describe('HostSession', () => {
     expect(events.lobbies.length).toBeGreaterThan(0);
   });
 
+  it('advertises canStart only once a second player is connected', async () => {
+    expect(host.lobbyInfo().canStart).toBe(false); // host alone
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+    expect(host.lobbyInfo().canStart).toBe(true);
+    expect(a.last('lobby')?.lobby.canStart).toBe(true);
+
+    a.conn.close(); // disconnected guests do not count, same as startGame's guard
+    await flush();
+    expect(host.lobbyInfo().canStart).toBe(false);
+    expect(events.lobbies[events.lobbies.length - 1]!.canStart).toBe(false);
+  });
+
   it('rejects a 7th player and late joiners without a token', async () => {
     const wires = Array.from({ length: 5 }, () => new Wire(host));
     for (const [i, w] of wires.entries()) w.hello('G' + i);

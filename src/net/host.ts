@@ -123,9 +123,14 @@ export class HostSession {
     this.broadcastLobby();
   }
 
+  /** Seats currently at the table: the host plus every connected guest. */
+  private presentSeats(): SeatRecord[] {
+    return this.seats.filter((s) => s.id === 'p0' || s.conn !== null);
+  }
+
   startGame(): void {
     if (this.state) return;
-    const present = this.seats.filter((s) => s.id === 'p0' || s.conn !== null);
+    const present = this.presentSeats();
     if (present.length < 2) {
       this.events.onError('You need at least one other player');
       return;
@@ -182,7 +187,8 @@ export class HostSession {
       })),
       hostId: 'p0',
       config: this.config,
-      started: this.state !== null
+      started: this.state !== null,
+      canStart: this.presentSeats().length >= 2
     };
   }
 

@@ -40,8 +40,8 @@
 <style>
   fieldset { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
   legend { font-weight: 600; margin-bottom: 8px; padding: 0; }
-  label { display: flex; gap: 12px; align-items: flex-start; }
-  input[type='checkbox'] { width: 22px; height: 22px; min-height: 0; margin-top: 2px; }
+  label { display: flex; gap: 12px; align-items: center; min-height: 44px; }
+  input[type='checkbox'] { width: 22px; height: 22px; min-height: 0; flex-shrink: 0; }
   span { display: flex; flex-direction: column; }
   small { color: var(--muted); }
 </style>
