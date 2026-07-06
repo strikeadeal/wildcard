@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+  --bg: #16181d;
+  --surface: #22252c;
+  --text: #f3f4f6;
+  --muted: #9aa1ab;
+  --accent: #e94f37;
+  --card-red: #e94f37;
+  --card-yellow: #f6c445;
+  --card-green: #45a86e;
+  --card-blue: #3d7dd8;
+  font-family: system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); }
+#app { height: 100%; }
+button {
+  font: inherit;
+  min-height: 44px;
+  min-width: 44px;
+  border: none;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.4; cursor: default; }
+button.ghost { background: var(--surface); color: var(--text); }
+input {
+  font: inherit;
+  min-height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--muted);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
