@@ -146,6 +146,7 @@ export class HostSession {
     if (this.state.phase === 'chooseColor') {
       this.tryApply(playerId, { type: 'chooseColor', color: this.state.currentColor });
     } else if (this.state.phase === 'chooseSwapTarget') {
+      // Deliberate host power: pick an arbitrary swap target for the absent player so the game can proceed.
       const other = this.state.players.find((p) => p.id !== playerId);
       if (other) this.tryApply(playerId, { type: 'chooseSwapTarget', targetId: other.id });
     } else {

@@ -10,11 +10,13 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 /** Test guest: a raw wire end that records everything the host sends it. */
 class Wire {
   received: ServerMsg[] = [];
+  closed = false;
   conn: Connection;
   constructor(host: HostSession) {
     const [guestEnd, hostEnd] = createLoopbackPair();
     this.conn = guestEnd;
     this.conn.onMessage((m) => this.received.push(m as ServerMsg));
+    this.conn.onClose(() => (this.closed = true));
     host.attach(hostEnd);
   }
   hello(name: string, token: string | null = null, v = PROTOCOL_VERSION) {
@@ -50,6 +52,7 @@ describe('HostSession', () => {
     w.hello('Old', null, 99);
     await flush();
     expect(w.last('rejected')?.reason).toBe('version');
+    expect(w.closed).toBe(true); // rejection also closes the connection
   });
 
   it('seats guests and broadcasts the lobby', async () => {
@@ -69,6 +72,7 @@ describe('HostSession', () => {
     seventh.hello('TooMany');
     await flush();
     expect(seventh.last('rejected')?.reason).toBe('full');
+    expect(seventh.closed).toBe(true);
 
     host.startGame();
     await flush();
@@ -76,6 +80,7 @@ describe('HostSession', () => {
     late.hello('Late');
     await flush();
     expect(late.last('rejected')?.reason).toBe('started');
+    expect(late.closed).toBe(true);
   });
 
   it('startGame deals views: each guest sees only their own hand', async () => {
@@ -125,6 +130,40 @@ describe('HostSession', () => {
     expect(back.last('welcome')?.playerId).toBe('p1');
     expect(back.last('view')?.view.you.hand).toHaveLength(7);
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
+  });
+
+  it('token rejoin supersedes a still-open connection without dropping the seat', async () => {
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+    const token = a.last('welcome')!.token;
+    host.startGame();
+    await flush();
+
+    // Do NOT close a's wire — hello with the same token from a fresh connection.
+    const takeover = new Wire(host);
+    takeover.hello('Ada', token);
+    await flush();
+
+    expect(takeover.last('welcome')?.playerId).toBe('p1');
+    expect(takeover.last('view')?.view.you.hand).toHaveLength(7);
+    expect(a.closed).toBe(true); // host closed the superseded connection
+    // The old connection's onClose must not mark the seat disconnected.
+    expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
+  });
+
+  it('removeSeat before start drops the guest from the lobby and closes their wire', async () => {
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+
+    host.removeSeat('p1');
+    await flush();
+
+    const lobby = events.lobbies[events.lobbies.length - 1]!;
+    expect(lobby.players.map((p) => p.id)).toEqual(['p0']);
+    expect(a.closed).toBe(true);
+    expect(host.state).toBeNull(); // still in the lobby, no game created
   });
 
   it('skipTurn force-ends an absent player turn; removeSeat deals them out', async () => {
