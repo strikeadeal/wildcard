@@ -47,16 +47,17 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 
   // Change the guest's state before dropping, so a rejoin that re-deals a
-  // fresh 7-card hand (instead of restoring the seat) is caught. A draw is
-  // deterministic under default rules: exactly one card enters the hand.
+  // fresh 7-card hand (instead of restoring the seat) is caught. A draw adds
+  // one card — or the full penalty amount if a draw2/wild4 is pending — which
+  // is why the wait checks for growth rather than an exact count.
   const drawPile = guest.getByRole('button', { name: 'Face-down card' });
   let handSize = 0;
   for (let i = 0; i < 40 && handSize === 0; i++) {
     if (await drawPile.isEnabled().catch(() => false)) {
       const before = await guest.locator('.hand .card').count();
       await drawPile.click();
-      await expect(guest.locator('.hand .card')).toHaveCount(before + 1, { timeout: 10_000 });
-      handSize = before + 1;
+      await expect.poll(() => guest.locator('.hand .card').count()).toBeGreaterThan(before);
+      handSize = await guest.locator('.hand .card').count();
     } else {
       await actIfPossible(host); // advance the game until the guest may draw
       await guest.waitForTimeout(250);
