@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 240_000,
   retries: process.env.CI ? 1 : 0,
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://localhost:5199',
     viewport: { width: 390, height: 844 }
