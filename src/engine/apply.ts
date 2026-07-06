@@ -222,7 +222,7 @@ function challengeWildFour(s: GameState, idx: number): ApplyResult {
   const guilty = accused.hand.some((c) => c.color === prevColor);
   clearPending(s);
   if (guilty) {
-    drawFromDeck(s, accusedId, 4);
+    drawFromDeck(s, accused.id, 4);
     // challenger keeps the turn and plays on the chosen color
     return done(s);
   }
