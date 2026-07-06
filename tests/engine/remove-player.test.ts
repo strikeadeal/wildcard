@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { removePlayer } from '../../src/engine/game';
-import { C, fixedState } from './fixtures';
+import { apply } from '../../src/engine/apply';
+import { C, fixedState, ok } from './fixtures';
 
 describe('removePlayer', () => {
   const state = () =>
@@ -42,5 +43,41 @@ describe('removePlayer', () => {
     s.phase = 'chooseColor';
     const next = removePlayer(s, 'p1');
     expect(next.phase).toBe('play');
+  });
+
+  it('keeps the turn pointer when a later seat is removed', () => {
+    const next = removePlayer(state(), 'p2'); // turn was 1 (p1)
+    expect(next.players[next.turn]!.id).toBe('p1');
+  });
+
+  it('repairs the successor when the turn holder is removed in reverse direction', () => {
+    const s = fixedState(
+      [[C('red', '1')], [C('green', '1')], [C('yellow', '2')], [C('blue', '3')]],
+      C('red', '5'),
+      { turn: 2, direction: -1 }
+    );
+    const next = removePlayer(s, 'p2');
+    expect(next.players[next.turn]!.id).toBe('p1'); // next seat in direction of play
+  });
+
+  it('clears a chooseSwapTarget phase owned by the removed player', () => {
+    const s = state();
+    s.phase = 'chooseSwapTarget';
+    const next = removePlayer(s, 'p1');
+    expect(next.phase).toBe('play');
+  });
+
+  it('a pending wild4 from a removed player stays but cannot be challenged', () => {
+    const w4 = C(null, 'wild4');
+    const s = fixedState(
+      [[w4, C('red', '1')], [C('green', '1'), C('green', '2')], [C('yellow', '1')]],
+      C('red', '5')
+    );
+    const played = ok(apply(s, 'p0', { type: 'playCard', cardId: w4.id, chosenColor: 'blue' }));
+    const gone = removePlayer(played, 'p0');
+    expect(gone.pendingDraw).toBe(4); // penalty stands
+    expect(apply(gone, 'p1', { type: 'challengeWildFour' }).ok).toBe(false); // no one to challenge
+    const resolved = ok(apply(gone, 'p1', { type: 'drawCard' }));
+    expect(resolved.players.find((p) => p.id === 'p1')!.hand).toHaveLength(6); // 2 + 4
   });
 });
