@@ -17,6 +17,11 @@
   const turnName = $derived(
     view?.players.find((p) => p.id === view?.turnPlayerId)?.name ?? ''
   );
+  const stuckPlayer = $derived.by(() => {
+    if (!view || !session.isHost || view.phase === 'roundEnd') return null;
+    const holder = view.players.find((p) => p.id === view.turnPlayerId);
+    return holder && !holder.connected ? holder : null;
+  });
 
   let pendingWild = $state<number | null>(null);
 
@@ -75,6 +80,13 @@
       <p class="status" aria-live="polite">
         {myTurn ? 'Your turn' : turnName + "'s turn"}
       </p>
+      {#if stuckPlayer}
+        <div class="stuck">
+          <small>{stuckPlayer.name} is disconnected.</small>
+          <button class="ghost" onclick={() => session.skipTurn(stuckPlayer.id)}>Skip their turn</button>
+          <button class="ghost" onclick={() => session.removeSeat(stuckPlayer.id)}>Remove them</button>
+        </div>
+      {/if}
     </div>
 
     <div class="actions">
@@ -147,6 +159,7 @@
   .colordot.blue { color: var(--card-blue); }
   .direction { font-size: 1.6em; color: var(--muted); }
   .status { margin: 0; font-weight: 600; }
+  .stuck { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .actions { display: flex; justify-content: center; gap: 10px; min-height: 48px; flex-wrap: wrap; }
   .lastcard { background: var(--card-yellow); color: #3b3200; font-weight: 800; }
   .hand {
