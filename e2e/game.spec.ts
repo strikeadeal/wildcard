@@ -46,12 +46,31 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 
+  // Change the guest's state before dropping, so a rejoin that re-deals a
+  // fresh 7-card hand (instead of restoring the seat) is caught. A draw is
+  // deterministic under default rules: exactly one card enters the hand.
+  const drawPile = guest.getByRole('button', { name: 'Face-down card' });
+  let handSize = 0;
+  for (let i = 0; i < 40 && handSize === 0; i++) {
+    if (await drawPile.isEnabled().catch(() => false)) {
+      const before = await guest.locator('.hand .card').count();
+      await drawPile.click();
+      await expect(guest.locator('.hand .card')).toHaveCount(before + 1, { timeout: 10_000 });
+      handSize = before + 1;
+    } else {
+      await actIfPossible(host); // advance the game until the guest may draw
+      await guest.waitForTimeout(250);
+    }
+  }
+  expect(handSize).toBeGreaterThan(7);
+
   await guest.close(); // drop the connection, keep the context (localStorage token)
   await expect(host.getByText('away')).toBeVisible({ timeout: 20_000 });
 
   guest = await guestCtx.newPage();
   await joinRoom(guest, code, 'Gil');
-  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 30_000 });
+  // The restored seat must hold the exact pre-disconnect hand, not a fresh deal.
+  await expect(guest.locator('.hand .card')).toHaveCount(handSize, { timeout: 30_000 });
   await expect(host.getByText('away')).toBeHidden({ timeout: 20_000 });
 
   await hostCtx.close();
@@ -79,23 +98,31 @@ test('house-rule toggles propagate to guests and the game runs with them on', as
 
   // Smoke: 30 legal moves under the full house ruleset without a stall or error.
   const pages = [host, guest];
+  let totalActed = 0;
   for (let i = 0; i < 30; i++) {
     // 7-0 swap picker may be open on either page
     for (const page of pages) {
       const swapChoice = page.locator('.list button').first();
-      if (await swapChoice.isVisible().catch(() => false)) await swapChoice.click();
+      if (await swapChoice.isVisible().catch(() => false)) {
+        await swapChoice.click();
+        totalActed++;
+      }
     }
+    let finished = false;
     let acted = false;
     for (const page of pages) {
       if (await page.getByText(/wins the round|You win the round/).isVisible().catch(() => false)) {
-        i = 30;
-        acted = true;
+        finished = true;
         break;
       }
       if (!acted) acted = await actIfPossible(page);
     }
-    if (!acted) await host.waitForTimeout(250);
+    if (finished) break;
+    if (acted) totalActed++;
+    else await host.waitForTimeout(250);
   }
+  // The combined ruleset must not stall the game outright.
+  expect(totalActed).toBeGreaterThan(0);
 
   await hostCtx.close();
   await guestCtx.close();
