@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#16181d"/>
+  <g transform="rotate(-12 256 280)">
+    <rect x="150" y="130" width="180" height="260" rx="22" fill="#3d7dd8"/>
+  </g>
+  <g transform="rotate(8 256 280)">
+    <rect x="185" y="120" width="180" height="260" rx="22" fill="#e94f37"/>
+    <text x="275" y="285" font-family="system-ui, sans-serif" font-size="120"
+          font-weight="800" fill="#fff" text-anchor="middle">W</text>
+  </g>
+</svg>

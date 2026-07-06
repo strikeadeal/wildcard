@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "icons": "node scripts/make-icons.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test"
