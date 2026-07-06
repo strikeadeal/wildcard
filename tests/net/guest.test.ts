@@ -11,10 +11,10 @@ const silentHost = () =>
     onLobby: () => {}, onView: () => {}, onError: () => {}
   });
 
-const guestEvents = (): { [K in keyof GuestEvents]: ReturnType<typeof vi.fn> } => ({
+const guestEvents = (): GuestEvents => ({
   onWelcome: vi.fn(), onLobby: vi.fn(), onView: vi.fn(),
   onRejected: vi.fn(), onError: vi.fn(), onClosed: vi.fn()
-});
+} as any);
 
 describe('GuestSession', () => {
   it('says hello on construction and surfaces welcome + lobby', async () => {
