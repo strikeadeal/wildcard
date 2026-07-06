@@ -1,42 +1,103 @@
 :root {
   color-scheme: dark;
-  --bg: #16181d;
-  --surface: #22252c;
-  --text: #f3f4f6;
-  --muted: #9aa1ab;
-  --accent: #e94f37;
-  --card-red: #e94f37;
-  --card-yellow: #f6c445;
-  --card-green: #45a86e;
-  --card-blue: #3d7dd8;
-  font-family: system-ui, sans-serif;
+
+  /* The table is green felt under a warm lamp — not flat dark-mode gray. */
+  --felt: #163a2c;
+  --felt-lit: #1f5540;
+  --felt-edge: #0c2019;
+  --line: #2f5748;
+
+  /* Warm card-stock ivory instead of a cold white. */
+  --text: #f4ede0;
+  --muted: #a7b6ac;
+
+  /* Panels sit on the felt: a deep, green-tinted card-stock dark. */
+  --surface: #1a3128;
+  --surface-2: #21402f;
+
+  --accent: #e0443a;
+  --brass: #e6b84b;
+
+  /* The four suits, tuned to pop off the felt while holding AA. */
+  --card-red: #e0443a;
+  --card-yellow: #f5c542;
+  --card-green: #37b06b;
+  --card-blue: #3f86e0;
+  --ink-yellow: #4a3600; /* readable ink for text on the yellow suit */
+
+  --radius: 12px;
+  --shadow-card: 0 6px 16px rgb(0 0 0 / 0.4), 0 1px 0 rgb(255 255 255 / 0.06) inset;
+
+  --display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--text); }
+
+body {
+  color: var(--text);
+  background-color: var(--felt);
+  /* Lamp pool in the middle, table falling to shadow at the edges, over a
+     woven felt weave built from two crossed hairline gradients. */
+  background-image:
+    radial-gradient(120% 90% at 50% 8%, var(--felt-lit) 0%, var(--felt) 42%, var(--felt-edge) 100%),
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.014) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.05) 0 2px, transparent 2px 4px);
+  background-attachment: fixed;
+  -webkit-text-size-adjust: 100%;
+}
 #app { height: 100%; }
+
+h1, h2, h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
 button {
   font: inherit;
-  min-height: 44px;
+  font-weight: 600;
+  min-height: 48px;
   min-width: 44px;
-  border: none;
-  border-radius: 8px;
-  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0 18px;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+  box-shadow: 0 2px 0 rgb(0 0 0 / 0.25);
+  transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
 }
-button:disabled { opacity: 0.4; cursor: default; }
-button.ghost { background: var(--surface); color: var(--text); }
-input {
-  font: inherit;
-  min-height: 44px;
-  border-radius: 8px;
-  border: 1px solid var(--muted);
+button:hover:not(:disabled) { filter: brightness(1.06); }
+button:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+button:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+
+button.ghost {
   background: var(--surface);
   color: var(--text);
-  padding: 0 12px;
+  border-color: var(--line);
+  box-shadow: none;
 }
+button.ghost:hover:not(:disabled) { background: var(--surface-2); filter: none; }
+
+:where(button, input, [tabindex]):focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 2px;
+}
+
+input {
+  font: inherit;
+  min-height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgb(0 0 0 / 0.22);
+  color: var(--text);
+  padding: 0 14px;
+}
+input::placeholder { color: var(--muted); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

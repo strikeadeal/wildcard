@@ -21,27 +21,57 @@
 
 <fieldset>
   <legend>House rules</legend>
-  {#each RULES as rule (rule.key)}
-    <label>
-      <input
-        type="checkbox"
-        checked={config[rule.key]}
-        disabled={!editable}
-        onchange={() => toggle(rule.key)}
-      />
-      <span>
-        <strong>{rule.label}</strong>
-        <small>{rule.hint}</small>
-      </span>
-    </label>
-  {/each}
+  <div class="rules">
+    {#each RULES as rule (rule.key)}
+      <label class:on={config[rule.key]} class:locked={!editable}>
+        <span class="text">
+          <strong>{rule.label}</strong>
+          <small>{rule.hint}</small>
+        </span>
+        <input
+          type="checkbox"
+          checked={config[rule.key]}
+          disabled={!editable}
+          onchange={() => toggle(rule.key)}
+        />
+      </label>
+    {/each}
+  </div>
 </fieldset>
 
 <style>
-  fieldset { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
-  legend { font-weight: 600; margin-bottom: 8px; padding: 0; }
-  label { display: flex; gap: 12px; align-items: center; min-height: 44px; }
-  input[type='checkbox'] { width: 22px; height: 22px; min-height: 0; flex-shrink: 0; }
-  span { display: flex; flex-direction: column; }
-  small { color: var(--muted); }
+  fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
+  legend {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0;
+    margin-bottom: 10px;
+  }
+  .rules { display: flex; flex-direction: column; gap: 8px; }
+  label {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    min-height: 44px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 14px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  label.on { border-color: rgb(55 176 107 / 0.6); background: var(--surface-2); }
+  label.locked { opacity: 0.75; }
+  .text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .text strong { font-weight: 600; }
+  small { color: var(--muted); font-size: 0.82rem; line-height: 1.35; }
+  input[type='checkbox'] {
+    width: 26px;
+    height: 26px;
+    min-height: 0;
+    flex-shrink: 0;
+    accent-color: var(--card-green);
+    cursor: pointer;
+  }
+  input:disabled { cursor: default; }
 </style>

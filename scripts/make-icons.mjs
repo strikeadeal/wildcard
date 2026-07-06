@@ -1,14 +1,64 @@
 import sharp from 'sharp';
-import { readFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 
-const svg = await readFile('public/icon.svg');
-const out = (size, name) =>
-  sharp(svg, { density: 300 }).resize(size, size).png().toFile('public/' + name);
+// One source of truth for the mark: a fanned deck with the WILDCARD brass "W"
+// monogram, centred in a 512 canvas. Drawn as vector paths so rasterisation
+// never depends on a system font being installed.
+const ART = `
+  <g transform="translate(256 262)">
+    <g transform="rotate(-15)">
+      <rect x="-156" y="-120" width="150" height="214" rx="20" fill="#d23b31" stroke="#f7f2e6" stroke-width="11"/>
+    </g>
+    <g transform="rotate(15)">
+      <rect x="6" y="-120" width="150" height="214" rx="20" fill="#356fd0" stroke="#f7f2e6" stroke-width="11"/>
+    </g>
+    <g transform="rotate(-2)">
+      <rect x="-86" y="-132" width="172" height="244" rx="24" fill="#f7f2e6"/>
+      <ellipse cx="0" cy="-10" rx="62" ry="96" fill="#163a2c" transform="rotate(-16 0 -10)"/>
+      <path d="M -46 -58 L -26 46 L 0 -14 L 26 46 L 46 -58"
+            fill="none" stroke="#e6b84b" stroke-width="22"
+            stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+  </g>`;
+
+const FELT = `
+  <defs>
+    <radialGradient id="felt" cx="50%" cy="34%" r="75%">
+      <stop offset="0%" stop-color="#1f5540"/>
+      <stop offset="60%" stop-color="#163a2c"/>
+      <stop offset="100%" stop-color="#0c2019"/>
+    </radialGradient>
+  </defs>`;
+
+// Regular icon + favicon: art on a rounded felt tile, transparent corners.
+const rounded = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  ${FELT}
+  <rect width="512" height="512" rx="104" fill="url(#felt)"/>
+  ${ART}
+</svg>`;
+
+// Maskable / apple-touch: edge-to-edge, fully opaque, NO baked-in rounding —
+// the OS applies its own mask. Art shrunk into the safe zone so the mask
+// can't clip it.
+const fullBleed = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  ${FELT}
+  <rect width="512" height="512" fill="url(#felt)"/>
+  <g transform="translate(256 256) scale(0.82) translate(-256 -256)">${ART}</g>
+</svg>`;
+
+await writeFile('public/icon.svg', rounded.trim() + '\n');
+
+const raster = (svg, size, name, flatten = false) => {
+  let p = sharp(Buffer.from(svg), { density: 300 }).resize(size, size);
+  if (flatten) p = p.flatten({ background: '#163a2c' });
+  return p.png().toFile('public/' + name);
+};
 
 await Promise.all([
-  out(192, 'icon-192.png'),
-  out(512, 'icon-512.png'),
-  out(512, 'icon-maskable-512.png'), // same art; rx of the source keeps it safe-zone friendly
-  out(180, 'apple-touch-icon.png')
+  raster(rounded, 192, 'icon-192.png'),
+  raster(rounded, 512, 'icon-512.png'),
+  // Distinct full-bleed opaque variants (not a reused PNG):
+  raster(fullBleed, 512, 'icon-maskable-512.png', true),
+  raster(fullBleed, 180, 'apple-touch-icon.png', true)
 ]);
-console.log('icons written');
+console.log('icons written (rounded + full-bleed maskable/apple-touch)');

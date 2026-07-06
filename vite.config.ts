@@ -9,7 +9,11 @@ export default defineConfig({
     svelte(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['icon.svg', 'apple-touch-icon.png', 'fonts/Fraunces.woff2'],
+      workbox: {
+        // Precache the self-hosted display font so it works fully offline.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}']
+      },
       manifest: {
         name: 'WILDCARD — the classic card game',
         short_name: 'WILDCARD',

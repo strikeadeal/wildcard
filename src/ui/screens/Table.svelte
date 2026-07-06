@@ -1,5 +1,7 @@
 <script lang="ts">
   import { session } from '../session.svelte';
+  import { flip } from 'svelte/animate';
+  import { scale } from 'svelte/transition';
   import CardFace from '../components/CardFace.svelte';
   import ColorPicker from '../components/ColorPicker.svelte';
   import OpponentSeat from '../components/OpponentSeat.svelte';
@@ -22,6 +24,12 @@
     const holder = view.players.find((p) => p.id === view.turnPlayerId);
     return holder && !holder.connected ? holder : null;
   });
+
+  // FLIP (Web Animations API) isn't caught by the CSS reduced-motion
+  // kill-switch, so gate its duration here too.
+  const reduce = typeof matchMedia !== 'undefined'
+    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const flipDur = reduce ? 0 : 220;
 
   let pendingWild = $state<number | null>(null);
 
@@ -65,26 +73,38 @@
     <div class="center">
       <div class="piles">
         <div class="drawpile">
-          <CardFace facedown onclick={view.canDraw ? () => session.sendAction({ type: 'drawCard' }) : undefined} />
-          <small>{view.deckCount} left</small>
-          {#if view.pendingDraw > 0}<strong class="penalty">+{view.pendingDraw}!</strong>{/if}
+          <div class="stack">
+            <CardFace facedown onclick={view.canDraw ? () => session.sendAction({ type: 'drawCard' }) : undefined} />
+          </div>
+          <small>{view.deckCount} in deck</small>
+          {#if view.pendingDraw > 0}<strong class="penalty">Draw +{view.pendingDraw}</strong>{/if}
         </div>
+
         <div class="discard">
-          <CardFace card={view.discardTop} />
-          <small class="colordot {view.currentColor}">{view.currentColor}</small>
+          {#key view.discardTop?.id}
+            <div class="landed" in:scale={{ duration: reduce ? 0 : 260, start: 0.7, opacity: 0.3 }}>
+              <CardFace card={view.discardTop} />
+            </div>
+          {/key}
+          <span class="colordot {view.currentColor}" aria-label="current color {view.currentColor}">
+            {view.currentColor}
+          </span>
         </div>
+
         <span class="direction" aria-label="direction of play">
           {view.direction === 1 ? '↻' : '↺'}
         </span>
       </div>
-      <p class="status" aria-live="polite">
+
+      <p class="status" class:mine={myTurn} aria-live="polite">
         {myTurn ? 'Your turn' : turnName + "'s turn"}
       </p>
+
       {#if stuckPlayer}
         <div class="stuck">
           <small>{stuckPlayer.name} is disconnected.</small>
-          <button class="ghost" onclick={() => session.skipTurn(stuckPlayer.id)}>Skip their turn</button>
-          <button class="ghost" onclick={() => session.removeSeat(stuckPlayer.id)}>Remove them</button>
+          <button class="ghost small" onclick={() => session.skipTurn(stuckPlayer.id)}>Skip their turn</button>
+          <button class="ghost small" onclick={() => session.removeSeat(stuckPlayer.id)}>Remove them</button>
         </div>
       {/if}
     </div>
@@ -103,11 +123,13 @@
 
     <div class="hand" role="group" aria-label="Your hand">
       {#each view.you.hand as card (card.id)}
-        <CardFace
-          {card}
-          playable={view.playableCardIds.includes(card.id)}
-          onclick={view.playableCardIds.includes(card.id) ? () => cardClicked(card) : undefined}
-        />
+        <div class="handcard" animate:flip={{ duration: flipDur }}>
+          <CardFace
+            {card}
+            playable={view.playableCardIds.includes(card.id)}
+            onclick={view.playableCardIds.includes(card.id) ? () => cardClicked(card) : undefined}
+          />
+        </div>
       {/each}
     </div>
   </div>
@@ -131,8 +153,8 @@
     height: 100dvh;
     display: flex;
     flex-direction: column;
-    padding: 12px;
-    gap: 8px;
+    padding: 14px 12px calc(12px + env(safe-area-inset-bottom));
+    gap: 6px;
   }
   .opponents {
     display: flex;
@@ -141,32 +163,117 @@
     flex-wrap: wrap;
   }
   .center {
+    position: relative;
     flex: 1;
+    min-height: 0;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 14px;
   }
-  .piles { display: flex; align-items: center; gap: 20px; }
-  .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  small { color: var(--muted); }
-  .penalty { color: var(--card-yellow); }
-  .colordot { text-transform: capitalize; font-weight: 700; }
-  .colordot.red { color: var(--card-red); }
-  .colordot.yellow { color: var(--card-yellow); }
-  .colordot.green { color: var(--card-green); }
-  .colordot.blue { color: var(--card-blue); }
-  .direction { font-size: 1.6em; color: var(--muted); }
-  .status { margin: 0; font-weight: 600; }
+  /* The felt "pitch": a faint marked oval where cards are played. */
+  .center::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: min(78vw, 320px);
+    height: min(52vh, 380px);
+    transform: translate(-50%, -54%);
+    border-radius: 50%;
+    border: 1px solid rgb(255 255 255 / 0.06);
+    background: radial-gradient(ellipse at center, rgb(255 255 255 / 0.045), transparent 68%);
+    pointer-events: none;
+  }
+  .center > * { position: relative; }
+  .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
+  .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+  /* Give the draw pile the depth of a real deck. */
+  .stack { position: relative; }
+  .stack::before, .stack::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: calc(var(--card-w) * 0.12);
+    background: #14332680;
+    z-index: -1;
+  }
+  .stack::before { transform: translate(3px, 3px); }
+  .stack::after { transform: translate(6px, 6px); opacity: 0.6; }
+
+  small { color: var(--muted); font-size: 0.82rem; }
+  .penalty {
+    color: var(--felt-edge);
+    background: var(--card-yellow);
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 800;
+  }
+
+  .colordot {
+    text-transform: capitalize;
+    font-weight: 700;
+    font-size: 0.82rem;
+    padding: 3px 12px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .colordot.red { background: var(--card-red); }
+  .colordot.yellow { background: var(--card-yellow); color: var(--ink-yellow); }
+  .colordot.green { background: var(--card-green); }
+  .colordot.blue { background: var(--card-blue); }
+
+  .direction { font-size: 1.9rem; color: var(--muted); line-height: 1; }
+
+  .status {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.25rem;
+    padding: 6px 18px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.22);
+    border: 1px solid var(--line);
+  }
+  .status.mine {
+    color: var(--felt-edge);
+    background: var(--brass);
+    border-color: transparent;
+    animation: turnglow 2s ease-in-out infinite;
+  }
+  @keyframes turnglow {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(230 184 75 / 0); }
+    50% { box-shadow: 0 0 22px 2px rgb(230 184 75 / 0.55); }
+  }
+
   .stuck { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
+
   .actions { display: flex; justify-content: center; gap: 10px; min-height: 48px; flex-wrap: wrap; }
-  .lastcard { background: var(--card-yellow); color: #3b3200; font-weight: 800; }
-  .hand {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding: 12px 4px 4px;
-    --card-w: 72px;
+  .lastcard {
+    background: var(--card-yellow);
+    color: var(--ink-yellow);
+    font-weight: 800;
+    box-shadow: 0 0 20px rgb(245 197 66 / 0.4), 0 2px 0 rgb(0 0 0 / 0.25);
   }
+
+  .hand {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: safe center;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 18px 10px 6px;
+    --card-w: 74px;
+    scrollbar-width: none;
+  }
+  .hand::-webkit-scrollbar { display: none; }
+  /* Hold them like a real hand: a slight overlap. */
+  .handcard { margin-inline: -8px; }
+  .handcard:first-child { margin-inline-start: 0; }
+  .handcard:last-child { margin-inline-end: 0; }
 </style>

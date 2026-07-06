@@ -27,25 +27,34 @@
 
 <main>
   <header>
-    <h2>Room <strong class="code">{session.roomCode}</strong></h2>
+    <p class="eyebrow">Room code</p>
+    <strong class="code">{session.roomCode}</strong>
     <div class="share">
       <button class="ghost" onclick={copyLink}>{copied ? 'Copied!' : 'Copy link'}</button>
       <button class="ghost" onclick={share}>Share</button>
     </div>
   </header>
 
-  <ul>
-    {#each lobby?.players ?? [] as player (player.id)}
-      <li class:off={!player.connected}>
-        <span>{player.name}{player.id === lobby?.hostId ? ' (host)' : ''}</span>
-        {#if !player.connected}<em>away</em>{/if}
-        {#if session.isHost && player.id !== 'p0'}
-          <button class="ghost small" onclick={() => session.removeSeat(player.id)}>Remove</button>
-        {/if}
-      </li>
-    {/each}
-  </ul>
-  <p class="hint">{lobby?.players.length ?? 0}/6 seats — tell friends the code or send the link.</p>
+  <section class="seats">
+    <div class="seats-head">
+      <h2>Players</h2>
+      <span class="count">{lobby?.players.length ?? 0}/6</span>
+    </div>
+    <ul>
+      {#each lobby?.players ?? [] as player (player.id)}
+        <li class:off={!player.connected}>
+          <span class="dot" class:on={player.connected}></span>
+          <span class="pname">{player.name}</span>
+          {#if player.id === lobby?.hostId}<span class="tag host">Host</span>{/if}
+          {#if !player.connected}<span class="tag away">Away</span>{/if}
+          {#if session.isHost && player.id !== 'p0'}
+            <button class="ghost small" onclick={() => session.removeSeat(player.id)}>Remove</button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    <p class="hint">Tell friends the code, or send them the link.</p>
+  </section>
 
   {#if lobby}
     <RuleToggles
@@ -55,40 +64,65 @@
     />
   {/if}
 
-  {#if session.isHost}
-    <button onclick={() => session.startGame()} disabled={!canStart}>
-      {canStart ? 'Start game' : 'Waiting for players…'}
-    </button>
-  {:else}
-    <p class="hint">Waiting for the host to start…</p>
-  {/if}
-  <button class="ghost" onclick={() => session.leave()}>Leave room</button>
+  <div class="foot">
+    {#if session.isHost}
+      <button class="primary" onclick={() => session.startGame()} disabled={!canStart}>
+        {canStart ? 'Start game' : 'Waiting for players…'}
+      </button>
+    {:else}
+      <p class="hint centered">Waiting for the host to start…</p>
+    {/if}
+    <button class="ghost" onclick={() => session.leave()}>Leave room</button>
+  </div>
 </main>
 
 <style>
   main {
-    max-width: 420px;
+    max-width: 440px;
     margin: 0 auto;
-    padding: 32px 20px;
+    padding: 28px 20px 36px;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 22px;
   }
-  header { display: flex; flex-direction: column; gap: 8px; }
-  .code { letter-spacing: 0.2em; font-size: 1.4em; }
-  .share { display: flex; gap: 8px; }
+  header { text-align: center; }
+  .eyebrow { color: var(--muted); margin: 0 0 2px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.14em; }
+  .code {
+    display: block;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 2.6rem;
+    letter-spacing: 0.16em;
+    color: var(--brass);
+  }
+  .share { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+
+  .seats-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  .seats-head h2 { font-size: 1.2rem; }
+  .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
   ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   li {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
     background: var(--surface);
-    border-radius: 8px;
-    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
   }
-  li.off span { color: var(--muted); }
-  em { color: var(--muted); font-style: normal; font-size: 0.85em; }
-  .small { min-height: 44px; padding: 0 10px; font-size: 0.85em; }
-  .hint { color: var(--muted); margin: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.on { background: var(--card-green); box-shadow: 0 0 8px rgb(55 176 107 / 0.6); }
+  .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li.off .pname { color: var(--muted); }
+  .tag { font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tag.host { background: rgb(230 184 75 / 0.16); color: var(--brass); }
+  .tag.away { background: rgb(0 0 0 / 0.25); color: var(--muted); }
+  .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
+
+  .hint { color: var(--muted); margin: 10px 0 0; font-size: 0.9rem; }
+  .hint.centered { text-align: center; margin: 0; }
+
+  .foot { display: flex; flex-direction: column; gap: 10px; }
+  .primary { background: var(--card-green); }
 </style>

@@ -32,12 +32,15 @@
 <style>
   .toast {
     position: fixed;
-    bottom: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom));
     left: 50%;
     transform: translateX(-50%);
     background: var(--surface);
+    border: 1px solid var(--line);
     padding: 12px 20px;
-    border-radius: 8px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
     max-width: 90vw;
+    z-index: 20;
   }
 </style>
