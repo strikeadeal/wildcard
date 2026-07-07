@@ -166,6 +166,27 @@ describe('HostSession', () => {
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
   });
 
+  it('does not throw on a malformed hello (non-string name/token) and still seats the guest', async () => {
+    const w = new Wire(host);
+    expect(() => w.conn.send({ v: PROTOCOL_VERSION, type: 'hello', name: 42 as any, token: 7 as any }))
+      .not.toThrow();
+    await flush();
+    expect(w.last('welcome')?.playerId).toBe('p1');
+    const name = w.last('lobby')?.lobby.players.find((p) => p.id === 'p1')?.name;
+    expect(typeof name).toBe('string');
+    expect(name!.length).toBeGreaterThan(0);
+  });
+
+  it('a single connection sending hello twice (no token) only occupies one seat', async () => {
+    const w = new Wire(host);
+    w.hello('Ada');
+    await flush();
+    w.hello('Ada again');
+    await flush();
+    const lobby = w.last('lobby')!.lobby;
+    expect(lobby.players).toHaveLength(2); // host + one guest, not two guests
+  });
+
   it('removeSeat before start drops the guest from the lobby and closes their wire', async () => {
     const a = new Wire(host);
     a.hello('Ada');

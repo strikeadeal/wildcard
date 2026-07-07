@@ -3,6 +3,42 @@ import { apply } from '../../src/engine/apply';
 import { handPoints } from '../../src/engine/scoring';
 import { C, fixedState, ok } from './fixtures';
 
+describe('hostile input', () => {
+  it('an unknown action type is rejected instead of throwing', () => {
+    const s = fixedState([[C('red', '5')], [C('green', '1')]], C('red', '5'));
+    expect(() => apply(s, 'p0', { type: 'garbage' } as any)).not.toThrow();
+    expect(apply(s, 'p0', { type: 'garbage' } as any).ok).toBe(false);
+  });
+
+  it('chooseColor rejects a color outside the legal set', () => {
+    const card = C(null, 'wild');
+    const s = fixedState([[card, C('blue', '1')], [C('green', '1')]], C('red', '5'));
+    const mid = ok(apply(s, 'p0', { type: 'playCard', cardId: card.id }));
+    expect(mid.phase).toBe('chooseColor');
+    expect(apply(mid, 'p0', { type: 'chooseColor', color: 'purple' as any }).ok).toBe(false);
+    // legal color still works after the illegal one was rejected
+    const next = ok(apply(mid, 'p0', { type: 'chooseColor', color: 'green' }));
+    expect(next.currentColor).toBe('green');
+  });
+
+  it('playing a wild with an illegal inline chosenColor is rejected', () => {
+    const card = C(null, 'wild');
+    const s = fixedState([[card, C('blue', '1')], [C('green', '1')]], C('red', '5'));
+    expect(apply(s, 'p0', { type: 'playCard', cardId: card.id, chosenColor: 'purple' as any }).ok)
+      .toBe(false);
+    // a valid inline color still plays in one action
+    const next = ok(apply(s, 'p0', { type: 'playCard', cardId: card.id, chosenColor: 'blue' }));
+    expect(next.currentColor).toBe('blue');
+  });
+
+  it('playing a wild with no chosenColor still enters chooseColor phase', () => {
+    const card = C(null, 'wild');
+    const s = fixedState([[card, C('blue', '1')], [C('green', '1')]], C('red', '5'));
+    const mid = ok(apply(s, 'p0', { type: 'playCard', cardId: card.id }));
+    expect(mid.phase).toBe('chooseColor');
+  });
+});
+
 describe('playCard basics', () => {
   it('plays a color match, updates discard and turn', () => {
     const card = C('red', '7');

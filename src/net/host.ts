@@ -47,6 +47,7 @@ export class HostSession {
         return;
       }
       if (msg.type === 'hello') {
+        if (seat) return; // this conn already has a seat; ignore repeated hello
         seat = this.handleHello(conn, msg.name, msg.token);
       } else if (msg.type === 'intent' && seat) {
         this.handleIntent(seat, msg.action);
@@ -59,7 +60,11 @@ export class HostSession {
     });
   }
 
-  private handleHello(conn: Connection, name: string, token: string | null): SeatRecord | null {
+  private handleHello(conn: Connection, rawName: unknown, rawToken: unknown): SeatRecord | null {
+    // Guests are untrusted and `raw as ClientMsg` is an unchecked cast: coerce
+    // anything that isn't the expected shape rather than throwing on it.
+    const name = typeof rawName === 'string' ? rawName : '';
+    const token = typeof rawToken === 'string' ? rawToken : null;
     if (token) {
       const seat = this.seats.find((s) => s.token === token);
       if (seat) {

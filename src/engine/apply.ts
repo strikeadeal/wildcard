@@ -1,10 +1,12 @@
+import { COLORS } from './deck';
 import { startNextRound } from './game';
-import { advanceTurn, drawFromDeck, isPlayable, playerIndex, topCard } from './helpers';
+import { advanceTurn, drawFromDeck, isPlayable, playerIndex } from './helpers';
 import { handPoints } from './scoring';
 import type { Action, ApplyResult, Color, GameState } from './types';
 
 const err = (error: string): ApplyResult => ({ ok: false, error });
 const done = (state: GameState): ApplyResult => ({ ok: true, state });
+const isLegalColor = (color: unknown): color is Color => COLORS.includes(color as Color);
 
 export function apply(state: GameState, playerId: string, action: Action): ApplyResult {
   const s = structuredClone(state);
@@ -32,6 +34,10 @@ export function apply(state: GameState, playerId: string, action: Action): Apply
       return jumpIn(s, idx, action.cardId, action.chosenColor, action.swapTargetId);
     case 'chooseSwapTarget':
       return chooseSwapTarget(s, idx, action.targetId);
+    default:
+      // Action is a closed union, but untrusted guests can send anything over
+      // the wire; without this the switch falls through and returns undefined.
+      return err('Unknown action');
   }
 }
 
@@ -112,6 +118,7 @@ function commitPlay(
 }
 
 function afterWild(s: GameState, idx: number, chosenColor?: Color): ApplyResult {
+  if (chosenColor !== undefined && !isLegalColor(chosenColor)) return err('Not a legal color');
   if (winsIfEmpty(s, idx)) return done(s);
   if (chosenColor) {
     s.currentColor = chosenColor;
@@ -127,6 +134,7 @@ function afterWild(s: GameState, idx: number, chosenColor?: Color): ApplyResult 
 function chooseColor(s: GameState, idx: number, color: Color): ApplyResult {
   if (s.phase !== 'chooseColor') return err('No color to choose');
   if (s.turn !== idx) return err('Not your choice');
+  if (!isLegalColor(color)) return err('Not a legal color');
   s.currentColor = color;
   s.phase = 'play';
   advanceTurn(s);
