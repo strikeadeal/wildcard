@@ -1,4 +1,5 @@
 import { DEFAULT_RULES, type Action, type PlayerView, type RuleConfig } from '../engine/types';
+import { deriveAnnouncement } from './announce';
 import { newRoomCode, normalizeCode } from '../net/codes';
 import { GuestSession } from '../net/guest';
 import { HostSession } from '../net/host';
@@ -38,6 +39,10 @@ class Session {
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
   toast = $state<string | null>(null);
+  /** Transient game announcement (wild colour pick, +2/+4), separate from errors. */
+  banner = $state<string | null>(null);
+  /** True when the local player made the most recent play — drives fly direction. */
+  lastPlayFromSelf = $state(false);
   fatal = $state<{ title: string; detail: string; canRejoin: boolean } | null>(null);
   isHost = $state(false);
   playerId = $state<string | null>(null);
@@ -50,6 +55,7 @@ class Session {
   private destroyPeer: (() => void) | null = null;
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private bannerTimer: ReturnType<typeof setTimeout> | undefined;
   /**
    * Bumped by leave(). In-flight connects capture the epoch at entry and
    * bail (destroying any late-won peer) if it changed — a cancel during
@@ -75,6 +81,25 @@ class Session {
     this.toastTimer = setTimeout(() => (this.toast = null), 3000);
   }
 
+  private showBanner(message: string): void {
+    this.banner = message;
+    clearTimeout(this.bannerTimer);
+    this.bannerTimer = setTimeout(() => (this.banner = null), 2400);
+  }
+
+  /**
+   * Both host and guest funnel incoming views here. Announcements (wild colour,
+   * +2/+4) are derived by diffing the previous view against the new one — the
+   * client has no event stream — before the new view is stored.
+   */
+  private handleView(view: PlayerView): void {
+    const { banner, fromSelf } = deriveAnnouncement(this.view, view);
+    this.lastPlayFromSelf = fromSelf;
+    if (banner) this.showBanner(banner);
+    this.view = view;
+    this.screen = 'game';
+  }
+
   private fail(title: string, detail: string, canRejoin = false): void {
     this.fatal = { title, detail, canRejoin };
     this.screen = 'fatal';
@@ -90,10 +115,7 @@ class Session {
         this.lobby = lobby;
         if (this.screen === 'connecting') this.screen = 'lobby';
       },
-      onView: (view: PlayerView) => {
-        this.view = view;
-        this.screen = 'game';
-      },
+      onView: (view: PlayerView) => this.handleView(view),
       onError: (message: string) => this.showToast(message)
     };
     this.host = new HostSession(name.trim() || 'Host', DEFAULT_RULES, events);
@@ -158,10 +180,7 @@ class Session {
           this.lobby = lobby;
           this.screen = 'lobby';
         },
-        onView: (view) => {
-          this.view = view;
-          this.screen = 'game';
-        },
+        onView: (view) => this.handleView(view),
         onRejected: (reason) => {
           const text = REJECTION_TEXT[reason] ?? REJECTION_TEXT.version!;
           this.fail(text.title, text.detail);
@@ -221,6 +240,8 @@ class Session {
     this.roomCode = null;
     this.lobby = null;
     this.view = null;
+    this.banner = null;
+    clearTimeout(this.bannerTimer);
     this.fatal = null;
     this.isHost = false;
     this.playerId = null;
