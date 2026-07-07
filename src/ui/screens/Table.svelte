@@ -1,12 +1,13 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import { flip } from 'svelte/animate';
-  import { scale } from 'svelte/transition';
+  import { fly } from 'svelte/transition';
   import CardFace from '../components/CardFace.svelte';
   import ColorPicker from '../components/ColorPicker.svelte';
   import OpponentSeat from '../components/OpponentSeat.svelte';
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
+  import Announce from '../components/Announce.svelte';
   import type { Card, Color } from '../../engine/types';
 
   const view = $derived(session.view);
@@ -30,6 +31,17 @@
   const reduce = typeof matchMedia !== 'undefined'
     && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const flipDur = reduce ? 0 : 220;
+
+  // A played card flies onto the discard from the direction of its player:
+  // up from your hand when you played it, down from the opponents otherwise.
+  function land(_node: Element, { fromSelf }: { fromSelf: boolean }) {
+    const dy = fromSelf ? 70 : -70;
+    return {
+      duration: reduce ? 0 : 300,
+      css: (t: number, u: number) =>
+        `transform: translateY(${u * dy}px) scale(${0.72 + t * 0.28}); opacity: ${t}`
+    };
+  }
 
   let pendingWild = $state<number | null>(null);
 
@@ -71,6 +83,7 @@
     </div>
 
     <div class="center">
+      <div class="announce-slot"><Announce /></div>
       <div class="piles">
         <div class="drawpile">
           <div class="stack">
@@ -82,7 +95,7 @@
 
         <div class="discard">
           {#key view.discardTop?.id}
-            <div class="landed" in:scale={{ duration: reduce ? 0 : 260, start: 0.7, opacity: 0.3 }}>
+            <div class="landed" in:land={{ fromSelf: session.lastPlayFromSelf }}>
               <CardFace card={view.discardTop} />
             </div>
           {/key}
@@ -123,7 +136,11 @@
 
     <div class="hand" role="group" aria-label="Your hand">
       {#each view.you.hand as card (card.id)}
-        <div class="handcard" animate:flip={{ duration: flipDur }}>
+        <div
+          class="handcard"
+          animate:flip={{ duration: flipDur }}
+          in:fly={{ y: reduce ? 0 : -46, duration: flipDur }}
+        >
           <CardFace
             {card}
             playable={view.playableCardIds.includes(card.id)}
@@ -188,6 +205,18 @@
     pointer-events: none;
   }
   .center > * { position: relative; }
+  /* Announcement banner floats near the top of the pitch, above the piles. */
+  .announce-slot {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    justify-content: center;
+    max-width: 92%;
+    pointer-events: none;
+  }
   .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
   .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 
