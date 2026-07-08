@@ -8,8 +8,8 @@ test('host actions remain visible in a two-player mobile lobby', async ({ browse
   await joinRoom(guest, code, 'Gil');
   await expect(host.getByText('Gil')).toBeVisible();
   const start = host.getByRole('button', { name: 'Start game' });
-  await expect(start).toBeInViewport();
-  await expect(host.getByRole('button', { name: 'Leave room' })).toBeInViewport();
+  await expect(start).toBeInViewport({ ratio: 1 });
+  await expect(host.getByRole('button', { name: 'Leave room' })).toBeInViewport({ ratio: 1 });
 });
 
 test('home fits a 390x844 viewport and exposes safe-area tokens', async ({ page }) => {
