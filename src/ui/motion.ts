@@ -35,7 +35,7 @@ export function anchor(node: HTMLElement, key: string) {
       setAnchor(key, node);
     },
     destroy() {
-      clearAnchor(key);
+      if (anchors.get(key) === node) clearAnchor(key);
     }
   };
 }

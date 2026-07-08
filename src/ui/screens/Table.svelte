@@ -367,7 +367,7 @@
   .direction.spin { animation: revspin 460ms cubic-bezier(0.2, 0.8, 0.3, 1); }
   @keyframes revspin {
     0% { transform: rotate(0deg) scale(1); color: var(--brass); }
-    100% { transform: rotate(180deg) scale(1); }
+    100% { transform: rotate(360deg) scale(1); }
   }
 
   .penalty.pop { animation: penaltypop 420ms cubic-bezier(0.2, 0.8, 0.3, 1); }
