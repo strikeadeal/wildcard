@@ -1,15 +1,37 @@
 <script lang="ts">
   import { session } from '../session.svelte';
+  import { fatalContent, type FatalAction } from '../fatal-state';
+
+  const content = $derived(
+    session.fatal ? fatalContent(session.fatal.reason, session.fatal.code) : null
+  );
+
+  const ACTION_LABEL: Record<FatalAction, string> = {
+    retry: 'Try again',
+    create: 'Create a new room',
+    refresh: 'Refresh',
+    home: 'Back to start'
+  };
+
+  function runAction(action: FatalAction): void {
+    switch (action) {
+      case 'refresh': location.reload(); break;
+      case 'retry': session.retryLastJoin(); break;
+      case 'create': session.createFromSavedName(); break;
+      case 'home': session.clearFatalToHome(); break;
+    }
+  }
 </script>
 
 <main>
   <div class="mark" aria-hidden="true">!</div>
-  <h2>{session.fatal?.title}</h2>
-  <p>{session.fatal?.detail}</p>
-  {#if session.fatal?.canRejoin}
-    <button class="primary" onclick={() => session.rejoin()}>Rejoin my seat</button>
-  {/if}
-  <button class="ghost" onclick={() => session.leave()}>Back to start</button>
+  <h2>{content?.title}</h2>
+  <p>{content?.detail}</p>
+  {#each content?.actions ?? [] as action, i (action)}
+    <button class={i === 0 ? 'primary' : 'ghost'} onclick={() => runAction(action)}>
+      {ACTION_LABEL[action]}
+    </button>
+  {/each}
 </main>
 
 <style>

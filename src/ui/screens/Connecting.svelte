@@ -1,10 +1,16 @@
 <script lang="ts">
   import { session } from '../session.svelte';
+
+  const label = $derived({
+    create: 'Creating your room…',
+    join: 'Finding the host…',
+    rejoin: 'Rejoining your seat…'
+  }[session.operation ?? 'join']);
 </script>
 
 <main>
   <div class="spinner" aria-hidden="true"></div>
-  <p>Connecting…</p>
+  <p>{label}</p>
   <button class="ghost" onclick={() => session.leave()}>Cancel</button>
 </main>
 

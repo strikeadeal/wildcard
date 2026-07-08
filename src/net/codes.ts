@@ -23,3 +23,11 @@ export function normalizeCode(input: string): string | null {
 export function codeToPeerId(code: string): string {
   return 'wildcard-' + code;
 }
+
+/** Field-friendly validation for the join-code input: null while empty or valid. */
+export function validateCode(input: string): string | null {
+  if (!input.trim()) return null;
+  return normalizeCode(input)
+    ? null
+    : 'Use 5 letters or numbers, excluding I, O, L, 0 and 1.';
+}

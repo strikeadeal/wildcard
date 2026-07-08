@@ -5,21 +5,16 @@ import { GuestSession } from '../net/guest';
 import { HostSession } from '../net/host';
 import { hostRoom, joinRoom as peerJoin } from '../net/peer';
 import type { LobbyInfo } from '../net/protocol';
+import type { FatalReason } from './fatal-state';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
+export type Operation = 'create' | 'join' | 'rejoin' | null;
 
 const NAME_KEY = 'wildcard:name';
 const tokenKey = (code: string) => 'wildcard:token:' + code;
 
 const configuredSeed = Number(import.meta.env.VITE_GAME_SEED);
 const e2eSeed = Number.isFinite(configuredSeed) ? () => configuredSeed : undefined;
-
-const REJECTION_TEXT: Record<string, { title: string; detail: string }> = {
-  version: { title: 'Update needed', detail: 'Your app version differs from the host\'s. Refresh the page on both devices and try again.' },
-  full: { title: 'Room full', detail: 'This room already has 6 players.' },
-  started: { title: 'Game in progress', detail: 'This game already started without you. Ask the host for a new room after this round.' },
-  badToken: { title: 'Seat not found', detail: 'Your old seat in this room is gone. Ask the host for a fresh invite.' }
-};
 
 /**
  * A silent ICE failure can leave the underlying PeerJS promise pending
@@ -48,7 +43,9 @@ class Session {
   lastPlayFromSelf = $state(false);
   /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
   fxEvent = $state<(GameEvent & { nonce: number }) | null>(null);
-  fatal = $state<{ title: string; detail: string; canRejoin: boolean } | null>(null);
+  /** Which connect flow is in flight — drives Connecting's operation-specific copy. */
+  operation = $state<Operation>(null);
+  fatal = $state<{ reason: FatalReason; code: string | null } | null>(null);
   isHost = $state(false);
   playerId = $state<string | null>(null);
   prefillCode = $state('');
@@ -105,21 +102,25 @@ class Session {
     if (banner) this.showBanner(banner);
     if (event) this.fxEvent = { ...event, nonce: ++this.fxNonce };
     this.view = view;
+    this.operation = null;
     this.screen = 'game';
   }
 
-  private fail(title: string, detail: string, canRejoin = false): void {
-    this.fatal = { title, detail, canRejoin };
+  private fail(reason: FatalReason): void {
+    this.operation = null;
+    this.fatal = { reason, code: this.roomCode ?? this.lastJoin?.code ?? null };
     this.screen = 'fatal';
   }
 
   async createRoom(name: string): Promise<void> {
     localStorage.setItem(NAME_KEY, name);
+    this.operation = 'create';
     this.screen = 'connecting';
     this.isHost = true;
     this.playerId = 'p0';
     const events = {
       onLobby: (lobby: LobbyInfo) => {
+        this.operation = null;
         this.lobby = lobby;
         if (this.screen === 'connecting') this.screen = 'lobby';
       },
@@ -143,6 +144,7 @@ class Session {
         this.destroyPeer = room.destroy;
         this.roomCode = code;
         this.lobby = this.host.lobbyInfo();
+        this.operation = null;
         this.screen = 'lobby';
         return;
       } catch (e) {
@@ -151,18 +153,20 @@ class Session {
         if (this.epoch !== epoch) return;
         const message = (e as Error).message;
         if (message !== 'code-taken') {
-          this.fail('Could not create a room', 'The connection service is unreachable. Check your internet connection — some strict networks (offices, schools) block game connections entirely.');
+          this.fail('networkUnavailable');
           return;
         }
       }
     }
     if (this.epoch !== epoch) return;
-    this.fail('Could not create a room', 'Could not claim a room code. Please try again.');
+    this.fail('networkUnavailable');
   }
 
-  async joinRoom(codeInput: string, name: string): Promise<void> {
+  async joinRoom(codeInput: string, name: string, isRejoin = false): Promise<void> {
+    this.operation = isRejoin ? 'rejoin' : 'join';
     const code = normalizeCode(codeInput);
     if (!code) {
+      this.operation = null;
       this.showToast('Room codes are 5 letters/numbers, like KP4XQ');
       return;
     }
@@ -187,18 +191,19 @@ class Session {
           localStorage.setItem(tokenKey(code), token);
         },
         onLobby: (lobby) => {
+          this.operation = null;
           this.lobby = lobby;
           this.screen = 'lobby';
         },
         onView: (view) => this.handleView(view),
         onRejected: (reason) => {
-          const text = REJECTION_TEXT[reason] ?? REJECTION_TEXT.version!;
-          this.fail(text.title, text.detail);
+          if (reason === 'badToken') localStorage.removeItem(tokenKey(code));
+          this.fail(reason);
         },
         onError: (message) => this.showToast(message),
         onClosed: () => {
           if (this.screen === 'fatal' || this.screen === 'home') return;
-          this.fail('Connection lost', 'The link to the host dropped. If the host is still playing, you can try to rejoin your seat.', true);
+          this.fail('roomUnavailable');
         }
       });
     } catch (e) {
@@ -206,17 +211,22 @@ class Session {
       raw.then((r) => r.destroy()).catch(() => {});
       if (this.epoch !== epoch) return;
       const message = (e as Error).message;
-      this.fail(
-        message === 'not-found' ? 'Room not found' : 'Could not connect',
-        message === 'not-found'
-          ? 'No room answers to code ' + code + '. Check the code with the host — rooms close when the host leaves.'
-          : 'The connection service is unreachable. Check your internet connection — some strict networks block game connections.'
-      );
+      this.fail(message === 'not-found' ? 'roomUnavailable' : 'networkUnavailable');
     }
   }
 
-  rejoin(): void {
-    if (this.lastJoin) void this.joinRoom(this.lastJoin.code, this.lastJoin.name);
+  retryLastJoin(): void {
+    if (this.lastJoin) void this.joinRoom(this.lastJoin.code, this.lastJoin.name, true);
+  }
+
+  clearFatalToHome(): void {
+    this.leave();
+  }
+
+  createFromSavedName(): void {
+    const name = this.savedName();
+    this.leave();
+    void this.createRoom(name);
   }
 
   sendAction(action: Action): void {
@@ -253,6 +263,7 @@ class Session {
     this.banner = null;
     this.fxEvent = null;
     clearTimeout(this.bannerTimer);
+    this.operation = null;
     this.fatal = null;
     this.isHost = false;
     this.playerId = null;

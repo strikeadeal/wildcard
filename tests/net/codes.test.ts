@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { codeToPeerId, newRoomCode, normalizeCode, CODE_ALPHABET } from '../../src/net/codes';
+import { codeToPeerId, newRoomCode, normalizeCode, validateCode, CODE_ALPHABET } from '../../src/net/codes';
 import { rng } from '../../src/engine/deck';
 
 describe('room codes', () => {
@@ -27,5 +27,10 @@ describe('room codes', () => {
 
   it('maps codes to namespaced peer ids', () => {
     expect(codeToPeerId('ABCDE')).toBe('wildcard-ABCDE');
+  });
+
+  it('returns a field-friendly reason for malformed codes', () => {
+    expect(validateCode('O0I1L')).toBe('Use 5 letters or numbers, excluding I, O, L, 0 and 1.');
+    expect(validateCode('KP4XQ')).toBeNull();
   });
 });
