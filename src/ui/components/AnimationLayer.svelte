@@ -2,8 +2,12 @@
   import { session } from '../session.svelte';
   import { getAnchorRect, flyGhost, prefersReducedMotion } from '../motion';
 
+  // One overlay owns every spawned/imperative effect. Declarative fx (deal-in,
+  // special-card beats, count pulse) live in their own components.
+
   let lastNonce = $state(-1);
   let unoPop = $state<{ x: number; y: number; nonce: number } | null>(null);
+  let unoTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
     const fx = session.fxEvent;
@@ -38,7 +42,8 @@
       else { y = innerHeight * 0.3; }
     }
     unoPop = { x, y, nonce: (unoPop?.nonce ?? 0) + 1 };
-    setTimeout(() => { unoPop = null; }, 750);
+    clearTimeout(unoTimer);
+    unoTimer = setTimeout(() => { unoPop = null; }, 750);
   }
 </script>
 
