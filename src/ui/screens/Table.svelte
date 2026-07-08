@@ -1,7 +1,6 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import { flip } from 'svelte/animate';
-  import { fly } from 'svelte/transition';
   import CardFace from '../components/CardFace.svelte';
   import ColorPicker from '../components/ColorPicker.svelte';
   import OpponentSeat from '../components/OpponentSeat.svelte';
@@ -9,7 +8,8 @@
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
   import type { Card, Color } from '../../engine/types';
-  import { prefersReducedMotion } from '../motion';
+  import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
+  import { cubicOut } from 'svelte/easing';
 
   const view = $derived(session.view);
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
@@ -39,6 +39,22 @@
       duration: reduce ? 0 : 300,
       css: (t: number, u: number) =>
         `transform: translateY(${u * dy}px) scale(${0.72 + t * 0.28}); opacity: ${t}`
+    };
+  }
+
+  // A newly-held card flies from the draw pile into its slot, then the FLIP
+  // reflow settles the hand. Falls back to a short lift if the deck isn't
+  // measured yet (e.g. very first paint).
+  function dealIn(node: Element) {
+    const deck = getAnchorRect('deck');
+    const rect = node.getBoundingClientRect();
+    const dx = deck ? deck.left + deck.width / 2 - (rect.left + rect.width / 2) : 0;
+    const dy = deck ? deck.top + deck.height / 2 - (rect.top + rect.height / 2) : -46;
+    return {
+      duration: reduce ? 0 : 320,
+      easing: cubicOut,
+      css: (t: number, u: number) =>
+        `transform: translate(${u * dx}px, ${u * dy}px) scale(${0.6 + t * 0.4}); opacity: ${t}`
     };
   }
 
@@ -85,7 +101,7 @@
       <div class="announce-slot"><Announce /></div>
       <div class="piles">
         <div class="drawpile">
-          <div class="stack">
+          <div class="stack" use:anchor={'deck'}>
             <CardFace facedown onclick={view.canDraw ? () => session.sendAction({ type: 'drawCard' }) : undefined} />
           </div>
           <small>{view.deckCount} in deck</small>
@@ -138,7 +154,7 @@
         <div
           class="handcard"
           animate:flip={{ duration: flipDur }}
-          in:fly={{ y: reduce ? 0 : -46, duration: flipDur }}
+          in:dealIn
         >
           <CardFace
             {card}
