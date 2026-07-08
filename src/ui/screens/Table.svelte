@@ -211,7 +211,11 @@
     height: 100dvh;
     display: flex;
     flex-direction: column;
-    padding: 14px 12px calc(12px + env(safe-area-inset-bottom));
+    padding:
+      calc(14px + var(--safe-top))
+      calc(12px + var(--safe-right))
+      calc(12px + var(--safe-bottom))
+      calc(12px + var(--safe-left));
     gap: 6px;
   }
   .opponents {
@@ -355,7 +359,7 @@
     transform: translate(-50%, -50%);
     filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.5));
     pointer-events: none;
-    animation: stamp 460ms cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+    animation: stamp 460ms var(--ease-out) forwards;
   }
   @keyframes stamp {
     0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6) rotate(-12deg); }
@@ -364,13 +368,13 @@
     100% { opacity: 0; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
   }
 
-  .direction.spin { animation: revspin 460ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+  .direction.spin { animation: revspin 460ms var(--ease-out); }
   @keyframes revspin {
     0% { transform: rotate(0deg) scale(1); color: var(--brass); }
     100% { transform: rotate(360deg) scale(1); }
   }
 
-  .penalty.pop { animation: penaltypop 420ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+  .penalty.pop { animation: penaltypop var(--motion-emphasis) var(--ease-out); }
   @keyframes penaltypop {
     0% { transform: scale(0.7); }
     45% { transform: scale(1.18); }

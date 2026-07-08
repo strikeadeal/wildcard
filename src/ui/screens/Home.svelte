@@ -66,7 +66,11 @@
   main {
     max-width: 420px;
     margin: 0 auto;
-    padding: 32px 22px 40px;
+    padding:
+      calc(32px + var(--safe-top))
+      calc(22px + var(--safe-right))
+      calc(40px + var(--safe-bottom))
+      calc(22px + var(--safe-left));
     min-height: 100%;
     display: flex;
     flex-direction: column;

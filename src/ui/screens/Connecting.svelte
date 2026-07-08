@@ -16,6 +16,11 @@
     align-items: center;
     justify-content: center;
     gap: 18px;
+    padding:
+      calc(var(--space-5) + var(--safe-top))
+      calc(20px + var(--safe-right))
+      calc(var(--space-6) + var(--safe-bottom))
+      calc(20px + var(--safe-left));
   }
   .spinner {
     width: 44px;

@@ -80,7 +80,11 @@
   main {
     max-width: 440px;
     margin: 0 auto;
-    padding: 28px 20px 36px;
+    padding:
+      calc(28px + var(--safe-top))
+      calc(20px + var(--safe-right))
+      calc(36px + var(--safe-bottom))
+      calc(20px + var(--safe-left));
     display: flex;
     flex-direction: column;
     gap: 22px;

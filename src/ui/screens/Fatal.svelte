@@ -16,7 +16,11 @@
   main {
     max-width: 420px;
     margin: 0 auto;
-    padding: 48px 24px;
+    padding:
+      calc(48px + var(--safe-top))
+      calc(24px + var(--safe-right))
+      calc(48px + var(--safe-bottom))
+      calc(24px + var(--safe-left));
     min-height: 100%;
     display: flex;
     flex-direction: column;
