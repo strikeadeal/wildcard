@@ -7,6 +7,7 @@
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
+  import AnimationLayer from '../components/AnimationLayer.svelte';
   import type { Card, Color } from '../../engine/types';
   import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
   import { cubicOut } from 'svelte/easing';
@@ -18,6 +19,7 @@
     const idx = view.players.findIndex((p) => p.id === view.you.id);
     return [...view.players.slice(idx + 1), ...view.players.slice(0, idx)];
   });
+  const drawFx = $derived(session.fxEvent?.kind === 'draw' ? session.fxEvent : null);
   const turnName = $derived(
     view?.players.find((p) => p.id === view?.turnPlayerId)?.name ?? ''
   );
@@ -92,6 +94,7 @@
           player={p}
           isTurn={view.turnPlayerId === p.id}
           catchable={view.catchableIds.includes(p.id)}
+          drewNonce={drawFx && drawFx.playerId === p.id ? drawFx.nonce : 0}
           oncatch={() => session.sendAction({ type: 'catchUno', targetId: p.id })}
         />
       {/each}
@@ -178,6 +181,7 @@
   {#if view.phase === 'roundEnd'}
     <RoundEnd />
   {/if}
+  <AnimationLayer />
 {/if}
 
 <style>

@@ -1,23 +1,27 @@
 <script lang="ts">
   import type { OpponentView } from '../../engine/types';
+  import { anchor } from '../motion';
 
-  let { player, isTurn, catchable, oncatch }: {
+  let { player, isTurn, catchable, oncatch, drewNonce = 0 }: {
     player: OpponentView;
     isTurn: boolean;
     catchable: boolean;
     oncatch: () => void;
+    drewNonce?: number;
   } = $props();
 </script>
 
-<div class="seat" class:turn={isTurn} class:off={!player.connected}>
+<div class="seat" class:turn={isTurn} class:off={!player.connected} use:anchor={'seat:' + player.id}>
   <span class="name">{player.name}</span>
-  <span class="count" aria-label="{player.cardCount} cards">
-    <svg class="mini" viewBox="0 0 20 20" aria-hidden="true">
-      <rect x="6" y="3.5" width="9" height="13" rx="2" fill="#f7f2e6" transform="rotate(9 10 10)" />
-      <rect x="4" y="3" width="9" height="13" rx="2" fill="#f7f2e6" stroke="var(--line)" />
-    </svg>
-    {player.cardCount}
-  </span>
+  {#key drewNonce}
+    <span class="count" class:pop={drewNonce > 0} aria-label="{player.cardCount} cards">
+      <svg class="mini" viewBox="0 0 20 20" aria-hidden="true">
+        <rect x="6" y="3.5" width="9" height="13" rx="2" fill="#f7f2e6" transform="rotate(9 10 10)" />
+        <rect x="4" y="3" width="9" height="13" rx="2" fill="#f7f2e6" stroke="var(--line)" />
+      </svg>
+      {player.cardCount}
+    </span>
+  {/key}
   {#if player.saidUno && player.cardCount === 1}<span class="badge uno">Last card!</span>{/if}
   {#if !player.connected}<span class="badge away">Away</span>{/if}
   {#if catchable}
@@ -71,4 +75,11 @@
   .uno { color: var(--ink-yellow); background: var(--card-yellow); }
   .away { color: var(--muted); background: rgb(0 0 0 / 0.25); }
   .catch { background: var(--card-yellow); color: var(--ink-yellow); min-height: 44px; padding: 0 12px; font-size: 0.85rem; font-weight: 800; } /* 44px touch-target floor */
+
+  .pop { animation: countpop 360ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+  @keyframes countpop {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.35); color: var(--brass); }
+    100% { transform: scale(1); }
+  }
 </style>
