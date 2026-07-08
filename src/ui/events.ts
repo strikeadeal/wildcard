@@ -55,7 +55,7 @@ function deriveBanner(prev: PlayerView | null, next: PlayerView): { banner: stri
 /** At most one animation event per transition, most-salient first. */
 function deriveEvent(prev: PlayerView | null, next: PlayerView): GameEvent | null {
   // Win outranks everything — even a special final card ends the round.
-  if (next.phase === 'roundEnd' && prev?.phase !== 'roundEnd' && next.roundWinner) {
+  if (next.phase === 'roundEnd' && !isDeal(prev) && next.roundWinner) {
     return { kind: 'win', winnerId: next.roundWinner, isYou: next.roundWinner === next.you.id };
   }
 

@@ -88,6 +88,24 @@ describe('deriveViewChange — banner (unchanged behaviour)', () => {
     const next = view({ discardTop: top, turnPlayerId: 'p0', deckCount: 79 });
     expect(deriveViewChange(prev, next).fromSelf).toBe(false);
   });
+
+  it('names the victim when a +4 is played', () => {
+    const prev = view({ pendingDraw: 0, discardTop: C('red', '5'), turnPlayerId: 'p0' });
+    const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), currentColor: 'yellow', turnPlayerId: 'p2' });
+    expect(deriveViewChange(prev, next).banner).toBe('Cyd draws +4');
+  });
+
+  it('prefers the penalty message over the colour message for a Wild+4', () => {
+    const prev = view({ pendingDraw: 0, currentColor: 'red', turnPlayerId: 'p0' });
+    const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), currentColor: 'blue', turnPlayerId: 'p1' });
+    expect(deriveViewChange(prev, next).banner).toBe('Bob draws +4');
+  });
+
+  it('reports not fromSelf when an opponent played', () => {
+    const prev = view({ discardTop: C('red', '5'), turnPlayerId: 'p1' });
+    const next = view({ discardTop: C('red', '7'), turnPlayerId: 'p2' });
+    expect(deriveViewChange(prev, next).fromSelf).toBe(false);
+  });
 });
 
 describe('deriveViewChange — animation events', () => {
@@ -163,5 +181,10 @@ describe('deriveViewChange — animation events', () => {
     const prev = view({ discardTop: C('red', '5'), turnPlayerId: 'p0' });
     const next = view({ discardTop: C('red', '7'), turnPlayerId: 'p1' });
     expect(deriveViewChange(prev, next).event).toBeNull();
+  });
+
+  it('does not replay a win when the first observed view is already round-end (reconnect)', () => {
+    const next = view({ phase: 'roundEnd', roundWinner: 'p1' });
+    expect(deriveViewChange(null, next).event).toBeNull();
   });
 });
