@@ -9,6 +9,7 @@
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
   import type { Card, Color } from '../../engine/types';
+  import { prefersReducedMotion } from '../motion';
 
   const view = $derived(session.view);
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
@@ -26,10 +27,8 @@
     return holder && !holder.connected ? holder : null;
   });
 
-  // FLIP (Web Animations API) isn't caught by the CSS reduced-motion
-  // kill-switch, so gate its duration here too.
-  const reduce = typeof matchMedia !== 'undefined'
-    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // FLIP / JS transitions aren't caught by the CSS reduced-motion kill-switch.
+  const reduce = prefersReducedMotion();
   const flipDur = reduce ? 0 : 220;
 
   // A played card flies onto the discard from the direction of its player:

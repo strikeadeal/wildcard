@@ -1,11 +1,10 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import { fly, fade } from 'svelte/transition';
+  import { prefersReducedMotion } from '../motion';
 
-  // Svelte JS transitions aren't caught by the CSS reduced-motion kill-switch,
-  // so gate their durations here (same pattern as Table.svelte).
-  const reduce = typeof matchMedia !== 'undefined'
-    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Svelte JS transitions aren't caught by the CSS reduced-motion kill-switch.
+  const reduce = prefersReducedMotion();
 </script>
 
 {#if session.banner}
