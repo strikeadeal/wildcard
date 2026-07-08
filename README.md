@@ -39,6 +39,23 @@ server keeping score in the background, which means if the host closes their
 tab or loses their connection, the room closes with them. Everyone else just
 needs to reconnect to a new room if that happens.
 
+### Internet connectivity and TURN
+
+Browsers first try to connect directly over WebRTC. Production builds also use
+an authenticated TURN relay when NAT or firewall rules prevent a direct path.
+The relay only forwards encrypted WebRTC packets; the host browser still owns
+the room and game state.
+
+Production deployment expects these GitHub Actions settings:
+
+- repository variable `VITE_TURN_URLS` — comma-separated UDP and TCP TURN URLs;
+- repository variable `VITE_TURN_USERNAME` — the coturn application user;
+- repository secret `VITE_TURN_CREDENTIAL` — the matching password.
+
+Vite embeds all three values in browser JavaScript. The secret setting prevents
+accidental repository disclosure, but the resulting TURN credential is public
+and must be dedicated, quota-limited, and replaceable.
+
 Because it's a PWA, you can install WILDCARD to your home screen for a more
 app-like feel, and the app shell will still load if you open it again while
 offline (you'll need a connection to actually create or join a room, since
