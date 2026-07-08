@@ -59,6 +59,8 @@ class Session {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private bannerTimer: ReturnType<typeof setTimeout> | undefined;
   private fxNonce = 0;
+  /** True when the most recent fail() happened during a create, not a join. */
+  private lastFailWasCreate = false;
   /**
    * Bumped by leave(). In-flight connects capture the epoch at entry and
    * bail (destroying any late-won peer) if it changed — a cancel during
@@ -107,12 +109,14 @@ class Session {
   }
 
   private fail(reason: FatalReason): void {
+    this.lastFailWasCreate = this.operation === 'create';
     this.operation = null;
     this.fatal = { reason, code: this.roomCode ?? this.lastJoin?.code ?? null };
     this.screen = 'fatal';
   }
 
   async createRoom(name: string): Promise<void> {
+    this.lastJoin = null;
     localStorage.setItem(NAME_KEY, name);
     this.operation = 'create';
     this.screen = 'connecting';
@@ -216,6 +220,10 @@ class Session {
   }
 
   retryLastJoin(): void {
+    if (this.lastFailWasCreate) {
+      this.createFromSavedName();
+      return;
+    }
     if (this.lastJoin) void this.joinRoom(this.lastJoin.code, this.lastJoin.name, true);
   }
 
@@ -265,6 +273,7 @@ class Session {
     clearTimeout(this.bannerTimer);
     this.operation = null;
     this.fatal = null;
+    this.lastFailWasCreate = false;
     this.isHost = false;
     this.playerId = null;
     this.screen = 'home';
