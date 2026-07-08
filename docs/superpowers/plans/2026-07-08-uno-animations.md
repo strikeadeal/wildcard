@@ -140,7 +140,6 @@ describe('deriveViewChange — animation events', () => {
         { id: 'p2', name: 'Cyd', cardCount: 5, saidUno: false, connected: true, score: 0 }
       ]
     });
-    expect(next).toBeDefined();
     expect(deriveViewChange(prev, next).event).toEqual({ kind: 'draw', playerId: 'p1', n: 2, toSelf: false });
   });
 
