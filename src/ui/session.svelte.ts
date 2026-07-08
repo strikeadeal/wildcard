@@ -1,5 +1,5 @@
 import { DEFAULT_RULES, type Action, type PlayerView, type RuleConfig } from '../engine/types';
-import { deriveAnnouncement } from './announce';
+import { deriveViewChange } from './events';
 import { newRoomCode, normalizeCode } from '../net/codes';
 import { GuestSession } from '../net/guest';
 import { HostSession } from '../net/host';
@@ -93,7 +93,7 @@ class Session {
    * client has no event stream — before the new view is stored.
    */
   private handleView(view: PlayerView): void {
-    const { banner, fromSelf } = deriveAnnouncement(this.view, view);
+    const { banner, fromSelf } = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = fromSelf;
     if (banner) this.showBanner(banner);
     this.view = view;
