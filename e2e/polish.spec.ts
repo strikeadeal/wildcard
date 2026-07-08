@@ -1,4 +1,16 @@
 import { test, expect } from '@playwright/test';
+import { createRoom, joinRoom } from './helpers';
+
+test('host actions remain visible in a two-player mobile lobby', async ({ browser }) => {
+  const host = await browser.newPage();
+  const guest = await browser.newPage();
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guest, code, 'Gil');
+  await expect(host.getByText('Gil')).toBeVisible();
+  const start = host.getByRole('button', { name: 'Start game' });
+  await expect(start).toBeInViewport();
+  await expect(host.getByRole('button', { name: 'Leave room' })).toBeInViewport();
+});
 
 test('home fits a 390x844 viewport and exposes safe-area tokens', async ({ page }) => {
   await page.goto('/');

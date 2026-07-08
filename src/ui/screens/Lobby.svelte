@@ -64,7 +64,7 @@
     />
   {/if}
 
-  <div class="foot">
+  <div class="lobby-actions">
     {#if session.isHost}
       <button class="primary" onclick={() => session.startGame()} disabled={!canStart}>
         {canStart ? 'Start game' : 'Waiting for players…'}
@@ -85,6 +85,7 @@
       calc(20px + var(--safe-right))
       calc(36px + var(--safe-bottom))
       calc(20px + var(--safe-left));
+    padding-bottom: 132px;
     display: flex;
     flex-direction: column;
     gap: 22px;
@@ -127,6 +128,18 @@
   .hint { color: var(--muted); margin: 10px 0 0; font-size: 0.9rem; }
   .hint.centered { text-align: center; margin: 0; }
 
-  .foot { display: flex; flex-direction: column; gap: 10px; }
+  .lobby-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-inline: calc(-20px - var(--safe-left)) calc(-20px - var(--safe-right));
+    margin-bottom: calc(-36px - var(--safe-bottom));
+    padding: var(--space-3) calc(20px + var(--safe-right))
+      calc(var(--space-3) + var(--safe-bottom)) calc(20px + var(--safe-left));
+    background: linear-gradient(transparent, var(--felt) 20%);
+  }
   .primary { background: var(--btn-green); }
 </style>
