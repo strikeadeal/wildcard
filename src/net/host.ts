@@ -30,7 +30,8 @@ export class HostSession {
     hostName: string,
     config: RuleConfig,
     private events: HostEvents,
-    private newToken: () => string = () => crypto.randomUUID()
+    private newToken: () => string = () => crypto.randomUUID(),
+    private newSeed: () => number = () => Date.now() >>> 0
   ) {
     this.config = config;
     this.seats.push({ id: 'p0', name: hostName, token: this.newToken(), conn: null });
@@ -144,7 +145,7 @@ export class HostSession {
     this.state = createGame(
       this.seats.map((s) => ({ id: s.id, name: s.name })),
       this.config,
-      Date.now() >>> 0
+      this.newSeed()
     );
     this.broadcastViews();
   }

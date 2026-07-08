@@ -2,12 +2,16 @@
   import { session } from '../session.svelte';
   import CardFace from '../components/CardFace.svelte';
   import type { Card } from '../../engine/types';
+  import { validateCode } from '../../net/codes';
 
   let name = $state(session.savedName());
   let code = $state(session.prefillCode);
-  let busy = $state(false);
+  let busyOp = $state<'create' | 'join' | null>(null);
 
   const ready = $derived(name.trim().length > 0);
+  const busy = $derived(busyOp !== null);
+  const codeError = $derived(validateCode(code));
+  const canJoin = $derived(ready && !!code.trim() && !codeError && !busy);
 
   // A decorative fan — the first thing you see is a hand of cards.
   const fan: Card[] = [
@@ -19,15 +23,15 @@
   ];
 
   async function create() {
-    busy = true;
+    busyOp = 'create';
     await session.createRoom(name);
-    busy = false;
+    busyOp = null;
   }
 
   async function join() {
-    busy = true;
+    busyOp = 'join';
     await session.joinRoom(code, name);
-    busy = false;
+    busyOp = null;
   }
 </script>
 
@@ -49,16 +53,32 @@
     <input bind:value={name} maxlength="20" placeholder="e.g. Sam" autocomplete="nickname" />
   </label>
 
-  <button class="primary" onclick={create} disabled={!ready || busy}>Create a room</button>
+  <section class="host">
+    <h2>Host a game</h2>
+    <button class="primary" onclick={create} disabled={!ready || busy}>
+      {busyOp === 'create' ? 'Creating room…' : 'Create a room'}
+    </button>
+  </section>
 
-  <div class="or"><span>or join one</span></div>
+  <div class="or"><span>or</span></div>
 
   <section class="join">
+    <h2>Join a game</h2>
     <label>
       Room code
-      <input bind:value={code} placeholder="e.g. KP4XQ" autocapitalize="characters" />
+      <input
+        bind:value={code}
+        placeholder="e.g. KP4XQ"
+        autocapitalize="characters"
+        aria-invalid={!!codeError}
+      />
     </label>
-    <button class="ghost" onclick={join} disabled={!ready || !code.trim() || busy}>Join</button>
+    {#if codeError}
+      <small class="field-error" role="status">{codeError}</small>
+    {/if}
+    <button class="ghost" onclick={join} disabled={!canJoin}>
+      {busyOp === 'join' ? 'Joining…' : 'Join'}
+    </button>
   </section>
 </main>
 
@@ -66,7 +86,11 @@
   main {
     max-width: 420px;
     margin: 0 auto;
-    padding: 32px 22px 40px;
+    padding:
+      calc(32px + var(--safe-top))
+      calc(22px + var(--safe-right))
+      calc(40px + var(--safe-bottom))
+      calc(22px + var(--safe-left));
     min-height: 100%;
     display: flex;
     flex-direction: column;
@@ -100,7 +124,28 @@
 
   label { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; color: var(--muted); }
   label input { color: var(--text); }
+
+  .host, .join {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .host h2, .join h2 {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
   .primary { background: var(--accent); font-size: 1.05rem; }
+
+  .field-error {
+    color: var(--card-red);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    margin-top: -4px;
+  }
 
   .or {
     display: flex;
@@ -110,8 +155,4 @@
     font-size: 0.85rem;
   }
   .or::before, .or::after { content: ''; height: 1px; flex: 1; background: var(--line); }
-
-  .join { display: flex; align-items: flex-end; gap: 10px; }
-  .join label { flex: 1; }
-  .join .ghost { align-self: flex-end; }
 </style>
