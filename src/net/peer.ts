@@ -1,5 +1,6 @@
 import Peer, { type DataConnection, type PeerOptions } from 'peerjs';
 import { codeToPeerId } from './codes';
+import { buildIceConfig, type TurnEnvironment } from './ice';
 import type { Connection } from './transport';
 
 /**
@@ -7,14 +8,22 @@ import type { Connection } from './transport';
  *   VITE_PEER_HOST=localhost VITE_PEER_PORT=9000
  * Default ({}) is the free public PeerJS cloud broker.
  */
-function peerOptions(): PeerOptions {
-  const host = import.meta.env.VITE_PEER_HOST as string | undefined;
-  if (!host) return {};
+interface PeerEnvironment extends TurnEnvironment {
+  VITE_PEER_HOST?: string;
+  VITE_PEER_PORT?: string;
+}
+
+export function peerOptions(env: PeerEnvironment = import.meta.env): PeerOptions {
+  const host = env.VITE_PEER_HOST;
+  const config = buildIceConfig(env);
   return {
-    host,
-    port: Number(import.meta.env.VITE_PEER_PORT ?? 9000),
-    path: '/',
-    secure: false
+    ...(host ? {
+      host,
+      port: Number(env.VITE_PEER_PORT ?? 9000),
+      path: '/',
+      secure: false
+    } : {}),
+    ...(config ? { config } : {})
   };
 }
 
