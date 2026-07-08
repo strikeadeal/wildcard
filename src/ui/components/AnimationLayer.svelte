@@ -1,6 +1,7 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import { getAnchorRect, flyGhost, prefersReducedMotion } from '../motion';
+  import Confetti from './Confetti.svelte';
 
   // One overlay owns every spawned/imperative effect. Declarative fx (deal-in,
   // special-card beats, count pulse) live in their own components.
@@ -8,6 +9,7 @@
   let lastNonce = $state(-1);
   let unoPop = $state<{ x: number; y: number; nonce: number } | null>(null);
   let unoTimer: ReturnType<typeof setTimeout> | undefined;
+  let confettiNonce = $state(0);
 
   $effect(() => {
     const fx = session.fxEvent;
@@ -16,6 +18,7 @@
     if (prefersReducedMotion()) return;
     if (fx.kind === 'draw' && !fx.toSelf) ghostDraw(fx.playerId);
     else if (fx.kind === 'uno') showUno(fx.playerId, fx.isYou);
+    else if (fx.kind === 'win') confettiNonce++;
   });
 
   function buildBack(w: number, h: number): HTMLElement {
@@ -53,6 +56,7 @@
       <span class="uno-pop" style="left: {unoPop.x}px; top: {unoPop.y}px;">UNO!</span>
     {/key}
   {/if}
+  <Confetti nonce={confettiNonce} />
 </div>
 
 <style>
