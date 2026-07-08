@@ -20,6 +20,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Validate production TURN settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${VITE_TURN_URLS}" ] || { echo "::error::VITE_TURN_URLS is empty"; exit 1; }
+          [ -n "${VITE_TURN_USERNAME}" ] || { echo "::error::VITE_TURN_USERNAME is empty"; exit 1; }
+          [ -n "${VITE_TURN_CREDENTIAL}" ] || { echo "::error::VITE_TURN_CREDENTIAL is empty"; exit 1; }
+        env:
+          VITE_TURN_URLS: ${{ vars.VITE_TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ vars.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
       - name: Build with production TURN fallback
         run: npm run build
         env:
