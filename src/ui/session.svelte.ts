@@ -1,5 +1,5 @@
 import { DEFAULT_RULES, type Action, type PlayerView, type RuleConfig } from '../engine/types';
-import { deriveViewChange } from './events';
+import { deriveViewChange, type GameEvent } from './events';
 import { newRoomCode, normalizeCode } from '../net/codes';
 import { GuestSession } from '../net/guest';
 import { HostSession } from '../net/host';
@@ -43,6 +43,8 @@ class Session {
   banner = $state<string | null>(null);
   /** True when the local player made the most recent play — drives fly direction. */
   lastPlayFromSelf = $state(false);
+  /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
+  fxEvent = $state<(GameEvent & { nonce: number }) | null>(null);
   fatal = $state<{ title: string; detail: string; canRejoin: boolean } | null>(null);
   isHost = $state(false);
   playerId = $state<string | null>(null);
@@ -56,6 +58,7 @@ class Session {
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private bannerTimer: ReturnType<typeof setTimeout> | undefined;
+  private fxNonce = 0;
   /**
    * Bumped by leave(). In-flight connects capture the epoch at entry and
    * bail (destroying any late-won peer) if it changed — a cancel during
@@ -88,14 +91,16 @@ class Session {
   }
 
   /**
-   * Both host and guest funnel incoming views here. Announcements (wild colour,
-   * +2/+4) are derived by diffing the previous view against the new one — the
-   * client has no event stream — before the new view is stored.
+   * Both host and guest funnel incoming views here. The banner (wild colour,
+   * +2/+4) and the animation event (draw/special/uno/win) are both derived by
+   * diffing the previous view against the new one — the client has no event
+   * stream — before the new view is stored.
    */
   private handleView(view: PlayerView): void {
-    const { banner, fromSelf } = deriveViewChange(this.view, view);
+    const { banner, fromSelf, event } = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = fromSelf;
     if (banner) this.showBanner(banner);
+    if (event) this.fxEvent = { ...event, nonce: ++this.fxNonce };
     this.view = view;
     this.screen = 'game';
   }
@@ -241,6 +246,7 @@ class Session {
     this.lobby = null;
     this.view = null;
     this.banner = null;
+    this.fxEvent = null;
     clearTimeout(this.bannerTimer);
     this.fatal = null;
     this.isHost = false;
