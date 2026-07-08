@@ -1,14 +1,16 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import { flip } from 'svelte/animate';
-  import { fly } from 'svelte/transition';
   import CardFace from '../components/CardFace.svelte';
   import ColorPicker from '../components/ColorPicker.svelte';
   import OpponentSeat from '../components/OpponentSeat.svelte';
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
+  import AnimationLayer from '../components/AnimationLayer.svelte';
   import type { Card, Color } from '../../engine/types';
+  import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
+  import { cubicOut } from 'svelte/easing';
 
   const view = $derived(session.view);
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
@@ -16,6 +18,17 @@
     if (!view) return [];
     const idx = view.players.findIndex((p) => p.id === view.you.id);
     return [...view.players.slice(idx + 1), ...view.players.slice(0, idx)];
+  });
+  const drawFx = $derived(session.fxEvent?.kind === 'draw' ? session.fxEvent : null);
+  // Latch the nonce of the last skip / reverse so the beat re-triggers (via
+  // {#key}) only when that specific special lands, not on every event.
+  let stampNonce = $state(0);
+  let spinNonce = $state(0);
+  $effect(() => {
+    const fx = session.fxEvent;
+    if (fx?.kind !== 'special') return;
+    if (fx.card.value === 'skip') stampNonce = fx.nonce;
+    else if (fx.card.value === 'reverse') spinNonce = fx.nonce;
   });
   const turnName = $derived(
     view?.players.find((p) => p.id === view?.turnPlayerId)?.name ?? ''
@@ -26,10 +39,8 @@
     return holder && !holder.connected ? holder : null;
   });
 
-  // FLIP (Web Animations API) isn't caught by the CSS reduced-motion
-  // kill-switch, so gate its duration here too.
-  const reduce = typeof matchMedia !== 'undefined'
-    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // FLIP / JS transitions aren't caught by the CSS reduced-motion kill-switch.
+  const reduce = prefersReducedMotion();
   const flipDur = reduce ? 0 : 220;
 
   // A played card flies onto the discard from the direction of its player:
@@ -40,6 +51,22 @@
       duration: reduce ? 0 : 300,
       css: (t: number, u: number) =>
         `transform: translateY(${u * dy}px) scale(${0.72 + t * 0.28}); opacity: ${t}`
+    };
+  }
+
+  // A newly-held card flies from the draw pile into its slot, then the FLIP
+  // reflow settles the hand. Falls back to a short lift if the deck isn't
+  // measured yet (e.g. very first paint).
+  function dealIn(node: Element) {
+    const deck = getAnchorRect('deck');
+    const rect = node.getBoundingClientRect();
+    const dx = deck ? deck.left + deck.width / 2 - (rect.left + rect.width / 2) : 0;
+    const dy = deck ? deck.top + deck.height / 2 - (rect.top + rect.height / 2) : -46;
+    return {
+      duration: reduce ? 0 : 320,
+      easing: cubicOut,
+      css: (t: number, u: number) =>
+        `transform: translate(${u * dx}px, ${u * dy}px) scale(${0.6 + t * 0.4}); opacity: ${t}`
     };
   }
 
@@ -77,6 +104,7 @@
           player={p}
           isTurn={view.turnPlayerId === p.id}
           catchable={view.catchableIds.includes(p.id)}
+          drewNonce={drawFx && drawFx.playerId === p.id ? drawFx.nonce : 0}
           oncatch={() => session.sendAction({ type: 'catchUno', targetId: p.id })}
         />
       {/each}
@@ -86,11 +114,13 @@
       <div class="announce-slot"><Announce /></div>
       <div class="piles">
         <div class="drawpile">
-          <div class="stack">
+          <div class="stack" use:anchor={'deck'}>
             <CardFace facedown onclick={view.canDraw ? () => session.sendAction({ type: 'drawCard' }) : undefined} />
           </div>
           <small>{view.deckCount} in deck</small>
-          {#if view.pendingDraw > 0}<strong class="penalty">Draw +{view.pendingDraw}</strong>{/if}
+          {#key view.pendingDraw}
+            {#if view.pendingDraw > 0}<strong class="penalty pop">Draw +{view.pendingDraw}</strong>{/if}
+          {/key}
         </div>
 
         <div class="discard">
@@ -99,14 +129,24 @@
               <CardFace card={view.discardTop} />
             </div>
           {/key}
+          {#key stampNonce}
+            {#if stampNonce > 0}
+              <svg class="skip-stamp" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.4" aria-hidden="true">
+                <circle cx="12" cy="12" r="8.4" /><line x1="6.2" y1="17.8" x2="17.8" y2="6.2" />
+              </svg>
+            {/if}
+          {/key}
           <span class="colordot {view.currentColor}" aria-label="current color {view.currentColor}">
             {view.currentColor}
           </span>
         </div>
 
-        <span class="direction" aria-label="direction of play">
-          {view.direction === 1 ? '↻' : '↺'}
-        </span>
+        {#key spinNonce}
+          <span class="direction" class:spin={spinNonce > 0} aria-label="direction of play">
+            {view.direction === 1 ? '↻' : '↺'}
+          </span>
+        {/key}
       </div>
 
       <p class="status" class:mine={myTurn} aria-live="polite">
@@ -139,7 +179,7 @@
         <div
           class="handcard"
           animate:flip={{ duration: flipDur }}
-          in:fly={{ y: reduce ? 0 : -46, duration: flipDur }}
+          in:dealIn
         >
           <CardFace
             {card}
@@ -163,6 +203,7 @@
   {#if view.phase === 'roundEnd'}
     <RoundEnd />
   {/if}
+  <AnimationLayer />
 {/if}
 
 <style>
@@ -218,7 +259,7 @@
     pointer-events: none;
   }
   .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
-  .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
 
   /* Give the draw pile the depth of a real deck. */
   .stack { position: relative; }
@@ -305,4 +346,36 @@
   .handcard { margin-inline: -8px; }
   .handcard:first-child { margin-inline-start: 0; }
   .handcard:last-child { margin-inline-end: 0; }
+
+  .skip-stamp {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 68%; height: 68%;
+    color: var(--card-red);
+    transform: translate(-50%, -50%);
+    filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.5));
+    pointer-events: none;
+    animation: stamp 460ms cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+  }
+  @keyframes stamp {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6) rotate(-12deg); }
+    35% { opacity: 1; }
+    60% { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+  }
+
+  .direction.spin { animation: revspin 460ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+  @keyframes revspin {
+    0% { transform: rotate(0deg) scale(1); color: var(--brass); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  .penalty.pop { animation: penaltypop 420ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+  @keyframes penaltypop {
+    0% { transform: scale(0.7); }
+    45% { transform: scale(1.18); }
+    70% { transform: scale(0.96) translateX(-2px); }
+    85% { transform: translateX(2px); }
+    100% { transform: scale(1) translateX(0); }
+  }
 </style>

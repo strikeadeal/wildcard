@@ -1,5 +1,9 @@
 <script lang="ts">
   import { session } from '../session.svelte';
+  import { fade, fly } from 'svelte/transition';
+  import { tweened } from 'svelte/motion';
+  import { cubicOut } from 'svelte/easing';
+  import { prefersReducedMotion } from '../motion';
 
   const view = $derived(session.view);
   const winner = $derived(
@@ -10,12 +14,17 @@
     [...(view?.players ?? [])].sort((a, b) => b.score - a.score)
   );
   const topScore = $derived(ranked[0]?.score ?? 0);
+
+  const reduce = prefersReducedMotion();
+  // One shared 0→1 progress drives every row's count-up.
+  const progress = tweened(0, { duration: reduce ? 0 : 650, easing: cubicOut });
+  $effect(() => { progress.set(1); });
 </script>
 
-<div class="overlay" role="dialog" aria-label="Round over">
-  <div class="sheet">
+<div class="overlay" role="dialog" aria-label="Round over" transition:fade={{ duration: reduce ? 0 : 200 }}>
+  <div class="sheet" in:fly={{ y: reduce ? 0 : 24, duration: reduce ? 0 : 320, easing: cubicOut }}>
     <p class="eyebrow">Round over</p>
-    <h2>{iWon ? 'You win the round!' : `${winner?.name} wins the round`}</h2>
+    <h2 class="winner">{iWon ? 'You win the round!' : `${winner?.name} wins the round`}</h2>
 
     <table>
       <tbody>
@@ -23,7 +32,7 @@
           <tr class:you={p.id === view?.you.id} class:lead={p.score === topScore && topScore > 0}>
             <td class="rank">{i + 1}</td>
             <td class="who">{p.name}{p.id === view?.you.id ? ' (you)' : ''}</td>
-            <td class="score">{p.score}</td>
+            <td class="score">{Math.round(p.score * $progress)}</td>
           </tr>
         {/each}
       </tbody>
@@ -75,4 +84,11 @@
 
   .primary { background: var(--btn-green); }
   .hint { color: var(--muted); margin: 0; text-align: center; }
+
+  .winner { animation: winnerglow 1.6s ease-in-out 0.2s both; }
+  @keyframes winnerglow {
+    0% { text-shadow: 0 0 0 rgb(230 184 75 / 0); transform: scale(0.98); }
+    40% { text-shadow: 0 0 26px rgb(230 184 75 / 0.6); transform: scale(1.03); }
+    100% { text-shadow: 0 0 0 rgb(230 184 75 / 0); transform: scale(1); }
+  }
 </style>
