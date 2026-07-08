@@ -1,5 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
-import { actIfPossible, createRoom, joinRoom } from './helpers';
+import { actIfPossible, clickIfActionable, createRoom, joinRoom } from './helpers';
+
+test('action helper does not wait on a control that became disabled', async ({ page }) => {
+  await page.setContent('<button aria-label="Face-down card" disabled>W</button>');
+  const started = Date.now();
+  expect(await clickIfActionable(page.getByRole('button', { name: 'Face-down card' })))
+    .toBe(false);
+  expect(Date.now() - started).toBeLessThan(1_000);
+});
 
 test('two players create, join, and play a full round to a win', async ({ browser }) => {
   const hostCtx = await browser.newContext();
@@ -104,10 +112,7 @@ test('house-rule toggles propagate to guests and the game runs with them on', as
     // 7-0 swap picker may be open on either page
     for (const page of pages) {
       const swapChoice = page.locator('.list button').first();
-      if (await swapChoice.isVisible().catch(() => false)) {
-        await swapChoice.click();
-        totalActed++;
-      }
+      if (await clickIfActionable(swapChoice)) totalActed++;
     }
     let finished = false;
     let acted = false;

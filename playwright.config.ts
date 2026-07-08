@@ -19,7 +19,11 @@ export default defineConfig({
       command: 'npm run dev -- --port 5199 --strictPort',
       url: 'http://localhost:5199',
       reuseExistingServer: !process.env.CI,
-      env: { VITE_PEER_HOST: 'localhost', VITE_PEER_PORT: '9099' }
+      env: {
+        VITE_PEER_HOST: 'localhost',
+        VITE_PEER_PORT: '9099',
+        VITE_GAME_SEED: '1337'
+      }
     }
   ]
 });

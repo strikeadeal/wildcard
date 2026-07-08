@@ -11,6 +11,9 @@ export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 const NAME_KEY = 'wildcard:name';
 const tokenKey = (code: string) => 'wildcard:token:' + code;
 
+const configuredSeed = Number(import.meta.env.VITE_GAME_SEED);
+const e2eSeed = Number.isFinite(configuredSeed) ? () => configuredSeed : undefined;
+
 const REJECTION_TEXT: Record<string, { title: string; detail: string }> = {
   version: { title: 'Update needed', detail: 'Your app version differs from the host\'s. Refresh the page on both devices and try again.' },
   full: { title: 'Room full', detail: 'This room already has 6 players.' },
@@ -123,7 +126,9 @@ class Session {
       onView: (view: PlayerView) => this.handleView(view),
       onError: (message: string) => this.showToast(message)
     };
-    this.host = new HostSession(name.trim() || 'Host', DEFAULT_RULES, events);
+    this.host = new HostSession(
+      name.trim() || 'Host', DEFAULT_RULES, events, undefined, e2eSeed
+    );
     const epoch = this.epoch;
     for (let attempt = 0; attempt < 2; attempt++) {
       const code = newRoomCode();

@@ -218,4 +218,18 @@ describe('HostSession', () => {
     expect(host.state!.players.map((p) => p.id)).toEqual(['p0']);
     expect(host.state!.phase).toBe('roundEnd');
   });
+
+  it('uses the injected seed when starting a game', async () => {
+    const handlers: HostEvents = {
+      onLobby: () => {}, onView: () => {}, onError: () => {}
+    };
+    const seeded = new HostSession(
+      'Host', DEFAULT_RULES, handlers, () => 'token', () => 1234
+    );
+    const w = new Wire(seeded);
+    w.hello('Ada');
+    await flush();
+    seeded.startGame();
+    expect(seeded.state?.seed).toBe(1235); // deal() advances the supplied seed once
+  });
 });
