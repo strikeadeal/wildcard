@@ -6,14 +6,12 @@
   import OpponentSeat from '../components/OpponentSeat.svelte';
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
-  import Announce from '../components/Announce.svelte';
   import ActionHistory from '../components/ActionHistory.svelte';
   import AnimationLayer from '../components/AnimationLayer.svelte';
   import ReconnectOverlay from '../components/ReconnectOverlay.svelte';
   import type { Card, Color, OpponentView } from '../../engine/types';
   import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
   import { cubicOut } from 'svelte/easing';
-  import { deriveActionPrompt } from '../action-prompt';
   import { noticeToGameEvent } from '../public-notices';
   import type { RecoveryState } from '../connection-state';
 
@@ -22,7 +20,6 @@
   const selectionEpoch = $derived(session.selectionEpoch);
   const recovering = $derived(recovery !== 'idle');
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
-  const prompt = $derived(view ? deriveActionPrompt(view) : null);
   const others = $derived.by(() => {
     if (!view) return [];
     const idx = view.players.findIndex((p) => p.id === view.you.id);
@@ -155,12 +152,8 @@
     </div>
 
     <div class="center">
-      <div class="notice-stack">
-        <div class="announce-slot"><Announce /></div>
-        <ActionHistory />
-      </div>
       <div class="piles">
-        <div class="drawpile">
+        <div class="drawpile" class:drawable={view.canDraw && !recovering}>
           <div class="stack" use:anchor={'deck'}>
             <CardFace
               facedown
@@ -201,7 +194,7 @@
         {/key}
       </div>
 
-      <p class="status {prompt?.tone}" aria-live="polite">{prompt?.text}</p>
+      <ActionHistory />
     </div>
 
       <div class="actions">
@@ -302,28 +295,20 @@
     pointer-events: none;
   }
   .center > * { position: relative; }
-  /* Announcement banner floats near the top of the pitch, above the piles. */
-  .notice-stack {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 5;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    width: min(92%, 440px);
-    pointer-events: none;
-  }
-  .announce-slot {
-    display: flex;
-    justify-content: center;
-    width: 100%;
-    pointer-events: none;
-  }
   .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
   .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
+
+  /* When a draw is available, the deck gets a subtle brass halo. The static
+     box-shadow is the reduced-motion fallback (app.css kills the animation). */
+  .drawpile.drawable .stack {
+    border-radius: calc(var(--card-w) * 0.12);
+    box-shadow: 0 0 12px 1px rgb(230 184 75 / 0.28);
+    animation: deckpulse 2.4s ease-in-out infinite;
+  }
+  @keyframes deckpulse {
+    0%, 100% { box-shadow: 0 0 8px 0 rgb(230 184 75 / 0.18); }
+    50% { box-shadow: 0 0 16px 2px rgb(230 184 75 / 0.40); }
+  }
 
   /* Give the draw pile the depth of a real deck. */
   .stack { position: relative; }
@@ -363,36 +348,6 @@
 
   .direction { font-size: 1.9rem; color: var(--muted); line-height: 1; }
 
-  .status {
-    margin: 0;
-    font-family: var(--display);
-    font-weight: 600;
-    font-size: 1.25rem;
-    padding: 6px 18px;
-    border-radius: 999px;
-    background: rgb(0 0 0 / 0.22);
-    border: 1px solid var(--line);
-  }
-  .status.active {
-    color: var(--felt-edge);
-    background: var(--brass);
-    border-color: transparent;
-    animation: turnglow 2s ease-in-out infinite;
-  }
-  .status.waiting {
-    color: var(--text);
-    background: rgb(0 0 0 / 0.22);
-    border-color: var(--line);
-  }
-  .status.urgent {
-    color: var(--ink-yellow);
-    background: var(--card-yellow);
-    border-color: transparent;
-  }
-  @keyframes turnglow {
-    0%, 100% { box-shadow: 0 0 0 0 rgb(230 184 75 / 0); }
-    50% { box-shadow: 0 0 22px 2px rgb(230 184 75 / 0.55); }
-  }
   .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
 
   .actions { display: flex; justify-content: center; gap: 10px; min-height: 48px; flex-wrap: wrap; }
