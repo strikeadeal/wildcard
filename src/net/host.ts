@@ -3,12 +3,13 @@ import { createGame, removePlayer } from '../engine/game';
 import { playerIndex } from '../engine/helpers';
 import { redact } from '../engine/redact';
 import type { Action, GameState, PlayerView, RuleConfig } from '../engine/types';
+import { deriveActionNotices, deriveConnectionNotice, type PublicNotice } from '../ui/public-notices';
 import { PROTOCOL_VERSION, type ClientMsg, type LobbyInfo, type ServerMsg } from './protocol';
 import type { Connection } from './transport';
 
 export interface HostEvents {
   onLobby(lobby: LobbyInfo): void;
-  onView(view: PlayerView): void;
+  onView(view: PlayerView, notices?: PublicNotice[]): void;
   onError(message: string): void;
 }
 
@@ -22,8 +23,10 @@ interface SeatRecord {
 export class HostSession {
   readonly hostPlayerId = 'p0' as const;
   state: GameState | null = null;
+  lastNotices: PublicNotice[] = [];
   private seats: SeatRecord[] = [];
   private nextSeat = 1;
+  private nextNoticeId = 1;
   private config: RuleConfig;
 
   constructor(
@@ -110,13 +113,16 @@ export class HostSession {
       this.errorTo(seat, 'The game has not started yet');
       return;
     }
-    const result = apply(this.state, seat.id, action);
+    const before = this.state;
+    const result = apply(before, seat.id, action);
     if (!result.ok) {
       this.errorTo(seat, result.error);
       return;
     }
     this.state = result.state;
-    this.broadcastViews();
+    const notices = this.makeNotices(before, seat.id, action);
+    this.lastNotices = notices;
+    this.broadcastViews(notices);
   }
 
   applyLocal(action: Action): void {
@@ -154,19 +160,21 @@ export class HostSession {
   skipTurn(playerId: string): void {
     if (!this.state) return;
     if (this.state.players[this.state.turn]?.id !== playerId) return;
+    const notices: PublicNotice[] = [];
     if (this.state.phase === 'chooseColor') {
-      this.tryApply(playerId, { type: 'chooseColor', color: this.state.currentColor });
+      notices.push(...this.tryApply(playerId, { type: 'chooseColor', color: this.state.currentColor }));
     } else if (this.state.phase === 'chooseSwapTarget') {
       // Deliberate host power: pick an arbitrary swap target for the absent player so the game can proceed.
       const other = this.state.players.find((p) => p.id !== playerId);
-      if (other) this.tryApply(playerId, { type: 'chooseSwapTarget', targetId: other.id });
+      if (other) notices.push(...this.tryApply(playerId, { type: 'chooseSwapTarget', targetId: other.id }));
     } else {
-      this.tryApply(playerId, { type: 'drawCard' });
+      notices.push(...this.tryApply(playerId, { type: 'drawCard' }));
       if (this.state.players[this.state.turn]?.id === playerId && this.state.hasDrawnThisTurn) {
-        this.tryApply(playerId, { type: 'passTurn' });
+        notices.push(...this.tryApply(playerId, { type: 'passTurn' }));
       }
     }
-    this.broadcastViews();
+    this.lastNotices = notices;
+    this.broadcastViews(notices);
   }
 
   /** Host power: permanently deal a guest out. */
@@ -174,11 +182,15 @@ export class HostSession {
     if (playerId === 'p0') return;
     const idx = this.seats.findIndex((s) => s.id === playerId);
     if (idx === -1) return;
-    this.seats[idx]!.conn?.close();
+    const conn = this.seats[idx]!.conn;
+    this.seats[idx]!.conn = null;
+    conn?.close();
     this.seats.splice(idx, 1);
     if (this.state && playerIndex(this.state, playerId) !== -1) {
+      const before = this.state;
       this.state = removePlayer(this.state, playerId);
-      this.broadcastViews();
+      this.lastNotices = this.makeStateNotices(before, this.state);
+      this.broadcastViews(this.lastNotices);
     } else {
       this.broadcastLobby();
     }
@@ -198,18 +210,46 @@ export class HostSession {
     };
   }
 
-  private tryApply(playerId: string, action: Action): void {
-    if (!this.state) return;
-    const result = apply(this.state, playerId, action);
-    if (result.ok) this.state = result.state;
+  private tryApply(playerId: string, action: Action): PublicNotice[] {
+    if (!this.state) return [];
+    const before = this.state;
+    const result = apply(before, playerId, action);
+    if (!result.ok) return [];
+    this.state = result.state;
+    return this.makeNotices(before, playerId, action);
+  }
+
+  private makeNotices(before: GameState, actorId: string, action: Action): PublicNotice[] {
+    if (!this.state) return [];
+    const notices = deriveActionNotices(before, this.state, actorId, action, this.nextNoticeId);
+    this.nextNoticeId += notices.length;
+    return notices;
+  }
+
+  private makeStateNotices(before: GameState, after: GameState): PublicNotice[] {
+    const notices: PublicNotice[] = [];
+    if (before.phase !== 'roundEnd' && after.phase === 'roundEnd' && after.roundWinner) {
+      notices.push({ id: this.nextNoticeId++, kind: 'roundWin', actorId: after.roundWinner });
+    }
+    return notices;
   }
 
   private setConnected(playerId: string, connected: boolean): void {
     if (this.state) {
       const idx = playerIndex(this.state, playerId);
       if (idx !== -1) {
+        const wasConnected = this.state.players[idx]!.connected;
         this.state = structuredClone(this.state);
         this.state.players[idx]!.connected = connected;
+        if (wasConnected !== connected) {
+          const notice = deriveConnectionNotice(playerId, connected, this.nextNoticeId++);
+          this.lastNotices = [notice];
+          this.broadcastViews([notice]);
+          return;
+        }
+        this.lastNotices = [];
+      } else {
+        this.lastNotices = [];
       }
       this.broadcastViews();
     } else {
@@ -230,14 +270,14 @@ export class HostSession {
     this.events.onLobby(lobby);
   }
 
-  private broadcastViews(): void {
+  private broadcastViews(notices: PublicNotice[] = []): void {
     if (!this.state) return;
     for (const seat of this.seats) {
       if (seat.conn && playerIndex(this.state, seat.id) !== -1) {
-        this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'view', view: redact(this.state, seat.id) });
+        this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'view', view: redact(this.state, seat.id), notices });
       }
     }
-    this.events.onView(redact(this.state, 'p0'));
+    this.events.onView(redact(this.state, 'p0'), notices);
   }
 
   private send(conn: Connection, msg: ServerMsg): void {

@@ -57,4 +57,13 @@ describe('loopback transport', () => {
     await flush();
     expect(received).toEqual([]);
   });
+
+  it('reports connected immediately and closed after peer close', async () => {
+    const [a, b] = createLoopbackPair();
+    const statuses: string[] = [];
+    b.onStatus((status) => statuses.push(status));
+    a.close();
+    await flush();
+    expect(statuses).toEqual(['connected', 'closed']);
+  });
 });

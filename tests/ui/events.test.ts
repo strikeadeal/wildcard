@@ -61,19 +61,19 @@ describe('deriveViewChange — banner (unchanged behaviour)', () => {
   it('names the victim when a +2 is played', () => {
     const prev = view({ pendingDraw: 0, discardTop: C('red', '5'), turnPlayerId: 'p0' });
     const next = view({ pendingDraw: 2, discardTop: C('red', 'draw2'), turnPlayerId: 'p1' });
-    expect(deriveViewChange(prev, next).banner).toBe('Bob draws +2');
+    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +2 for Bob');
   });
 
   it('uses second person when the penalty falls on you', () => {
     const prev = view({ pendingDraw: 0, turnPlayerId: 'p1' });
     const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), turnPlayerId: 'p0' });
-    expect(deriveViewChange(prev, next).banner).toBe('You draw +4');
+    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for you');
   });
 
-  it('re-announces each increment when penalties stack', () => {
+  it('re-announces the stacked total when penalties stack', () => {
     const prev = view({ pendingDraw: 2, turnPlayerId: 'p1' });
     const next = view({ pendingDraw: 4, discardTop: C('blue', 'draw2'), turnPlayerId: 'p2' });
-    expect(deriveViewChange(prev, next).banner).toBe('Cyd draws +2');
+    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for Cyd');
   });
 
   it('reports fromSelf when the local player played', () => {
@@ -92,13 +92,13 @@ describe('deriveViewChange — banner (unchanged behaviour)', () => {
   it('names the victim when a +4 is played', () => {
     const prev = view({ pendingDraw: 0, discardTop: C('red', '5'), turnPlayerId: 'p0' });
     const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), currentColor: 'yellow', turnPlayerId: 'p2' });
-    expect(deriveViewChange(prev, next).banner).toBe('Cyd draws +4');
+    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for Cyd');
   });
 
   it('prefers the penalty message over the colour message for a Wild+4', () => {
     const prev = view({ pendingDraw: 0, currentColor: 'red', turnPlayerId: 'p0' });
     const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), currentColor: 'blue', turnPlayerId: 'p1' });
-    expect(deriveViewChange(prev, next).banner).toBe('Bob draws +4');
+    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for Bob');
   });
 
   it('reports not fromSelf when an opponent played', () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { session } from './session.svelte';
   import Home from './screens/Home.svelte';
   import Connecting from './screens/Connecting.svelte';
@@ -9,9 +10,30 @@
   function confirmLeave(e: BeforeUnloadEvent) {
     if (session.gameLive) e.preventDefault();
   }
+
+  $effect(() => {
+    if (!import.meta.env.DEV) return;
+    const testApi = ((window as any).__wildcardTest ??= {});
+    testApi.dropGuestConnection = () => session.dropGuestConnectionForTest();
+    return () => {
+      if ((window as any).__wildcardTest?.dropGuestConnection) {
+        delete (window as any).__wildcardTest.dropGuestConnection;
+      }
+    };
+  });
+
+  onMount(() => {
+    const handler = (event: Event) => session.captureInstallPrompt(event);
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  });
 </script>
 
-<svelte:window onbeforeunload={confirmLeave} />
+<svelte:window
+  onbeforeunload={confirmLeave}
+  ononline={() => session.setOnline(true)}
+  onoffline={() => session.setOnline(false)}
+/>
 
 {#if session.screen === 'home'}
   <Home />

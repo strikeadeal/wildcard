@@ -1,5 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
-import { actIfPossible, clickIfActionable, createRoom, joinRoom } from './helpers';
+import { actIfPossible, clickIfActionable, createRoom, expectLobbyPlayer, joinRoom } from './helpers';
+
+async function dropGuestConnection(page: Page): Promise<void> {
+  await page.evaluate(() => (window as any).__wildcardTest.dropGuestConnection());
+}
+
+async function openPendingWildPicker(page: Page): Promise<void> {
+  await page.evaluate(() => (window as any).__wildcardTest.openPendingWildPicker());
+}
 
 test('action helper does not wait on a control that became disabled', async ({ page }) => {
   await page.setContent('<button aria-label="Face-down card" disabled>W</button>');
@@ -17,7 +25,7 @@ test('two players create, join, and play a full round to a win', async ({ browse
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
 
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
@@ -46,11 +54,11 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const host = await hostCtx.newPage();
-  let guest = await guestCtx.newPage();
+  const guest = await guestCtx.newPage();
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 
@@ -73,13 +81,19 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   }
   expect(handSize).toBeGreaterThan(7);
 
-  await guest.close(); // drop the connection, keep the context (localStorage token)
-  await expect(host.getByText('away')).toBeVisible({ timeout: 20_000 });
+  await openPendingWildPicker(guest);
+  await expect(guest.locator('.swatches')).toBeVisible({ timeout: 5_000 });
 
-  guest = await guestCtx.newPage();
-  await joinRoom(guest, code, 'Gil');
-  // The restored seat must hold the exact pre-disconnect hand, not a fresh deal.
+  await dropGuestConnection(guest);
+  await expect(guest.getByRole('status')).toContainText('Connection unstable…', { timeout: 10_000 });
+  await expect(guest.locator('.swatches')).toHaveCount(0, { timeout: 10_000 });
+  await expect(host.getByText('away')).toBeVisible({ timeout: 20_000 });
+  await expect(guest.getByRole('status')).toContainText('Rejoining your seat…', { timeout: 20_000 });
+  await expect(guest.locator('.hand .card')).toHaveCount(handSize);
+
   await expect(guest.locator('.hand .card')).toHaveCount(handSize, { timeout: 30_000 });
+  await expect(guest.getByRole('status')).toHaveCount(0, { timeout: 20_000 });
+  await expect(guest.locator('.swatches')).toHaveCount(0);
   await expect(host.getByText('away')).toBeHidden({ timeout: 20_000 });
 
   await hostCtx.close();
@@ -94,7 +108,7 @@ test('house-rule toggles propagate to guests and the game runs with them on', as
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
 
   for (const rule of ['Stacking', 'Jump-in', 'Draw to match', '7-0']) {
     await host.getByRole('checkbox', { name: new RegExp(rule) }).check();

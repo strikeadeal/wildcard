@@ -1,4 +1,5 @@
 import type { Action, PlayerView, RuleConfig } from '../engine/types';
+import type { PublicNotice } from '../ui/public-notices';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -24,5 +25,5 @@ export type ServerMsg =
   | { v: number; type: 'welcome'; playerId: string; token: string }
   | { v: number; type: 'rejected'; reason: 'version' | 'full' | 'started' | 'badToken' }
   | { v: number; type: 'lobby'; lobby: LobbyInfo }
-  | { v: number; type: 'view'; view: PlayerView }
+  | { v: number; type: 'view'; view: PlayerView; notices?: PublicNotice[] }
   | { v: number; type: 'error'; message: string };

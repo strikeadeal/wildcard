@@ -1,14 +1,21 @@
 <script lang="ts">
   import { session } from '../session.svelte';
+  import { formatNotice } from '../public-notices';
   import { fly, fade } from 'svelte/transition';
   import { prefersReducedMotion } from '../motion';
 
   // Svelte JS transitions aren't caught by the CSS reduced-motion kill-switch.
   const reduce = prefersReducedMotion();
+  const text = $derived(
+    session.currentNotice
+      ? formatNotice(session.currentNotice, session.view?.players ?? [], session.view?.you.id ?? '')
+      : session.banner
+  );
+  const noticeKey = $derived(session.currentNotice?.id ?? session.banner ?? '');
 </script>
 
-{#if session.banner}
-  {#key session.banner}
+{#if text}
+  {#key noticeKey}
     <div
       class="announce"
       role="status"
@@ -16,7 +23,7 @@
       in:fly={{ y: reduce ? 0 : -18, duration: reduce ? 0 : 240 }}
       out:fade={{ duration: reduce ? 0 : 180 }}
     >
-      {session.banner}
+      {text}
     </div>
   {/key}
 {/if}

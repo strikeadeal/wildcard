@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { HostSession, type HostEvents } from '../../src/net/host';
 import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { PROTOCOL_VERSION, type ServerMsg } from '../../src/net/protocol';
-import { DEFAULT_RULES, type PlayerView } from '../../src/engine/types';
+import { DEFAULT_RULES, type GameState, type PlayerView } from '../../src/engine/types';
 import type { LobbyInfo } from '../../src/net/protocol';
+import { C, fixedState } from '../engine/fixtures';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -127,6 +128,34 @@ describe('HostSession', () => {
     }
   });
 
+  it('stores derived public notices after a successful action', async () => {
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+    host.startGame();
+    await flush();
+    host.state = fixedTwoPlayerState();
+
+    a.intent({ type: 'playCard', cardId: 9001 });
+    await flush();
+
+    expect(host.lastNotices).toEqual([
+      { id: 1, kind: 'play', actorId: 'p1', card: { color: 'red', value: 'draw2' } },
+      { id: 2, kind: 'penalty', actorId: 'p1', targetId: 'p0', count: 2, pendingDraw: 2, stacked: false }
+    ]);
+  });
+
+  it('sends public notices alongside the resulting view', async () => {
+    const w = new Wire(host);
+    w.hello('Ada');
+    await flush();
+    host.startGame();
+    await flush();
+    host.applyLocal({ type: 'drawCard' });
+    await flush();
+    expect(w.last('view')?.notices?.every((n) => Number.isInteger(n.id))).toBe(true);
+  });
+
   it('marks disconnects and restores a seat on token rejoin', async () => {
     const a = new Wire(host);
     a.hello('Ada');
@@ -137,6 +166,7 @@ describe('HostSession', () => {
     a.conn.close();
     await flush();
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(false);
+    expect(host.lastNotices).toEqual([{ id: 1, kind: 'disconnect', actorId: 'p1' }]);
 
     const back = new Wire(host);
     back.hello('Ada', token);
@@ -144,6 +174,7 @@ describe('HostSession', () => {
     expect(back.last('welcome')?.playerId).toBe('p1');
     expect(back.last('view')?.view.you.hand).toHaveLength(7);
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
+    expect(host.lastNotices).toEqual([{ id: 2, kind: 'reconnect', actorId: 'p1' }]);
   });
 
   it('token rejoin supersedes a still-open connection without dropping the seat', async () => {
@@ -164,6 +195,7 @@ describe('HostSession', () => {
     expect(a.closed).toBe(true); // host closed the superseded connection
     // The old connection's onClose must not mark the seat disconnected.
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
+    expect(host.lastNotices).toEqual([]);
   });
 
   it('does not throw on a malformed hello (non-string name/token) and still seats the guest', async () => {
@@ -203,20 +235,31 @@ describe('HostSession', () => {
 
   it('skipTurn force-ends an absent player turn; removeSeat deals them out', async () => {
     const a = new Wire(host);
+    const b = new Wire(host);
+    a.hello('Ada');
+    b.hello('Bob');
+    await flush();
+    host.state = fixedPendingSkipState();
+    host.skipTurn('p1');
+    expect(host.state!.players[host.state!.turn]!.id).toBe('p2');
+    expect(host.lastNotices).toEqual([{ id: 1, kind: 'draw', actorId: 'p1', count: 2 }]);
+
+    host.removeSeat('p1');
+    await flush();
+    expect(host.state!.players.map((p) => p.id)).toEqual(['p0', 'p2']);
+    expect(host.lastNotices).toEqual([]);
+  });
+
+  it('stores a round-win notice when host removal ends the round', async () => {
+    const a = new Wire(host);
     a.hello('Ada');
     await flush();
     host.startGame();
     await flush();
-    while (host.state!.players[host.state!.turn]!.id !== 'p1') {
-      host.skipTurn(host.state!.players[host.state!.turn]!.id);
-    }
-    host.skipTurn('p1');
-    expect(host.state!.players[host.state!.turn]!.id).toBe('p0');
-
     host.removeSeat('p1');
     await flush();
-    expect(host.state!.players.map((p) => p.id)).toEqual(['p0']);
     expect(host.state!.phase).toBe('roundEnd');
+    expect(host.lastNotices).toEqual([{ id: 1, kind: 'roundWin', actorId: 'p0' }]);
   });
 
   it('uses the injected seed when starting a game', async () => {
@@ -233,3 +276,19 @@ describe('HostSession', () => {
     expect(seeded.state?.seed).toBe(1235); // deal() advances the supplied seed once
   });
 });
+
+function fixedTwoPlayerState(): GameState {
+  return fixedState(
+    [[C('blue', '3', 9000)], [C('red', 'draw2', 9001), C('yellow', '9', 9004)]],
+    C('red', '5', 9003),
+    { turn: 1 }
+  );
+}
+
+function fixedPendingSkipState(): GameState {
+  return fixedState(
+    [[C('green', '7', 9100)], [C('blue', '3', 9101)], [C('yellow', '5', 9102)]],
+    C('red', 'draw2', 9103),
+    { pendingDraw: 2, pendingType: 'draw2', turn: 1 }
+  );
+}

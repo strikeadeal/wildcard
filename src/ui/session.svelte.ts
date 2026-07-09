@@ -6,12 +6,31 @@ import { HostSession } from '../net/host';
 import { hostRoom, joinRoom as peerJoin } from '../net/peer';
 import type { LobbyInfo } from '../net/protocol';
 import type { FatalReason } from './fatal-state';
+import { nextRecoveryState, type RecoveryState } from './connection-state';
+import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
+import type { PublicNotice } from './public-notices';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 export type Operation = 'create' | 'join' | 'rejoin' | null;
+type RejoinOutcome = 'joined' | 'seatUnavailable' | 'roomMissing' | 'networkFailed';
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
 
 const NAME_KEY = 'wildcard:name';
+const RETURNING_KEY = 'wildcard:returning';
+const INSTALL_DISMISSED_KEY = 'wildcard:install-dismissed';
 const tokenKey = (code: string) => 'wildcard:token:' + code;
+
+function readStorage(key: string): string | null {
+  return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+}
+
+function writeStorage(key: string, value: string): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(key, value);
+}
 
 const configuredSeed = Number(import.meta.env.VITE_GAME_SEED);
 const e2eSeed = Number.isFinite(configuredSeed) ? () => configuredSeed : undefined;
@@ -39,6 +58,8 @@ class Session {
   toast = $state<string | null>(null);
   /** Transient game announcement (wild colour pick, +2/+4), separate from errors. */
   banner = $state<string | null>(null);
+  noticeHistory = $state<PublicNotice[]>([]);
+  noticeQueue = $state<PublicNotice[]>([]);
   /** True when the local player made the most recent play — drives fly direction. */
   lastPlayFromSelf = $state(false);
   /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
@@ -49,6 +70,16 @@ class Session {
   isHost = $state(false);
   playerId = $state<string | null>(null);
   prefillCode = $state('');
+  recovery = $state<RecoveryState>('idle');
+  selectionEpoch = $state(0);
+  online = $state(typeof navigator === 'undefined' ? true : navigator.onLine);
+  installEvent = $state<BeforeInstallPromptEvent | null>(null);
+  installDismissed = $state(readStorage(INSTALL_DISMISSED_KEY) === '1');
+  returningPlayer = $state(readStorage(RETURNING_KEY) === '1');
+  currentNotice = $derived(this.noticeQueue[0] ?? null);
+  canOfferInstall = $derived(
+    !!this.installEvent && !this.installDismissed && this.returningPlayer
+  );
 
   gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
 
@@ -58,6 +89,7 @@ class Session {
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private bannerTimer: ReturnType<typeof setTimeout> | undefined;
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private fxNonce = 0;
   /** True when the most recent fail() happened during a create, not a join. */
   private lastFailWasCreate = false;
@@ -77,7 +109,34 @@ class Session {
   }
 
   savedName(): string {
-    return localStorage.getItem(NAME_KEY) ?? '';
+    return readStorage(NAME_KEY) ?? '';
+  }
+
+  setOnline(value: boolean): void {
+    this.online = value;
+  }
+
+  captureInstallPrompt(event: Event): void {
+    event.preventDefault();
+    this.installEvent = event as BeforeInstallPromptEvent;
+  }
+
+  async installApp(): Promise<void> {
+    const event = this.installEvent;
+    if (!event) return;
+    await event.prompt();
+    await event.userChoice;
+    this.installEvent = null;
+  }
+
+  dismissInstallPrompt(): void {
+    this.installDismissed = true;
+    writeStorage(INSTALL_DISMISSED_KEY, '1');
+  }
+
+  private markReturningPlayer(): void {
+    this.returningPlayer = true;
+    writeStorage(RETURNING_KEY, '1');
   }
 
   private showToast(message: string): void {
@@ -92,32 +151,178 @@ class Session {
     this.bannerTimer = setTimeout(() => (this.banner = null), 2400);
   }
 
+  private scheduleNoticeDismissal(): void {
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.dismissCurrentNotice(), 2400);
+  }
+
+  private bumpSelectionEpoch(): void {
+    this.selectionEpoch++;
+  }
+
   /**
-   * Both host and guest funnel incoming views here. The banner (wild colour,
-   * +2/+4) and the animation event (draw/special/uno/win) are both derived by
-   * diffing the previous view against the new one — the client has no event
-   * stream — before the new view is stored.
+   * Both host and guest funnel incoming views here. Transported notices drive
+   * queue/history state when present; otherwise older hosts still fall back to
+   * deriving banner and animation changes by diffing consecutive views.
    */
-  private handleView(view: PlayerView): void {
-    const { banner, fromSelf, event } = deriveViewChange(this.view, view);
-    this.lastPlayFromSelf = fromSelf;
-    if (banner) this.showBanner(banner);
-    if (event) this.fxEvent = { ...event, nonce: ++this.fxNonce };
+  private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
+    if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
+      this.markReturningPlayer();
+    }
+    const change = deriveViewChange(this.view, view);
+    this.lastPlayFromSelf = change.fromSelf;
+    const seenNotices = [...this.noticeHistory, ...this.noticeQueue];
+    const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
+      ...seenNotices
+    ]);
+    this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
+    const shouldScheduleNotice = this.noticeQueue.length === 0 && nextQueue.length > 0;
+    this.noticeQueue = nextQueue;
+    if (shouldScheduleNotice) this.scheduleNoticeDismissal();
+
+    if (notices.length === 0) {
+      if (change.banner) this.showBanner(change.banner);
+      if (change.event) this.fxEvent = { ...change.event, nonce: ++this.fxNonce };
+    }
     this.view = view;
+    if (this.recovery !== 'idle') {
+      this.bumpSelectionEpoch();
+      this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
+    }
     this.operation = null;
     this.screen = 'game';
+  }
+
+  private handleGuestStatus(status: 'connecting' | 'connected' | 'unstable' | 'closed'): void {
+    if (this.isHost || this.screen !== 'game' || !this.view) return;
+    if (status === 'unstable') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'transportUnstable' });
+    } else if (status === 'connected' && this.recovery === 'unstable') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
+    }
+  }
+
+  private handleGuestClosed(): void {
+    if (this.screen === 'fatal' || this.screen === 'home') return;
+    if (this.screen !== 'game' || !this.view || !this.lastJoin) {
+      this.fail('roomUnavailable');
+      return;
+    }
+    if (this.recovery === 'reconnecting') return;
+    this.bumpSelectionEpoch();
+    this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
+    const destroyPeer = this.destroyPeer;
+    this.destroyPeer = null;
+    destroyPeer?.();
+    this.guest = null;
+    void this.recoverGuest();
+  }
+
+  private async recoverGuest(): Promise<void> {
+    if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+    for (const delay of [0, 1500]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+      const outcome = await this.tryRejoinOnce();
+      if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+      if (outcome === 'joined') return;
+      if (outcome === 'roomMissing') {
+        this.recovery = nextRecoveryState(this.recovery, { type: 'roomMissing' });
+        return;
+      }
+      if (outcome === 'seatUnavailable') {
+        this.recovery = nextRecoveryState(this.recovery, { type: 'seatMissing' });
+        return;
+      }
+    }
+    if (this.recovery === 'reconnecting') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'networkFailed' });
+    }
+  }
+
+  private async tryRejoinOnce(): Promise<RejoinOutcome> {
+    if (!this.lastJoin) return 'networkFailed';
+    const epoch = this.epoch;
+    const { code, name } = this.lastJoin;
+    const token = readStorage(tokenKey(code));
+    const raw = peerJoin(code);
+    try {
+      const { conn, destroy } = await withTimeout(raw);
+      if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
+        conn.close();
+        destroy();
+        return 'networkFailed';
+      }
+      return await new Promise<RejoinOutcome>((resolve) => {
+        let settled = false;
+        let nextPlayerId: string | null = null;
+        let nextToken: string | null = token;
+        let candidate: GuestSession | null = null;
+        const dispose = () => {
+          candidate?.close();
+          destroy();
+        };
+        const finish = (outcome: RejoinOutcome) => {
+          if (settled) return;
+          settled = true;
+          if (outcome !== 'joined') dispose();
+          resolve(outcome);
+        };
+        candidate = new GuestSession(conn, name.trim() || 'Player', token, {
+          onWelcome: (playerId, freshToken) => {
+            nextPlayerId = playerId;
+            nextToken = freshToken;
+          },
+          onLobby: () => {},
+          onView: (view, notices) => {
+            if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
+              finish('networkFailed');
+              return;
+            }
+            this.destroyPeer = destroy;
+            this.guest = candidate;
+            if (nextPlayerId) this.playerId = nextPlayerId;
+            if (nextToken) writeStorage(tokenKey(code), nextToken);
+            this.handleView(view, notices);
+            finish('joined');
+          },
+          onRejected: (reason) => {
+            if (reason === 'badToken' && typeof localStorage !== 'undefined') {
+              localStorage.removeItem(tokenKey(code));
+              finish('seatUnavailable');
+              return;
+            }
+            finish('networkFailed');
+          },
+          onError: () => {},
+          onClosed: () => finish('networkFailed'),
+          onConnectionStatus: () => {}
+        });
+      });
+    } catch (e) {
+      raw.then((r) => r.destroy()).catch(() => {});
+      return (e as Error).message === 'not-found' ? 'roomMissing' : 'networkFailed';
+    }
+  }
+
+  dismissCurrentNotice(): void {
+    this.noticeQueue = this.noticeQueue.slice(1);
+    clearTimeout(this.noticeTimer);
+    if (this.noticeQueue.length) this.scheduleNoticeDismissal();
   }
 
   private fail(reason: FatalReason): void {
     this.lastFailWasCreate = this.operation === 'create';
     this.operation = null;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.fatal = { reason, code: this.roomCode ?? this.lastJoin?.code ?? null };
     this.screen = 'fatal';
   }
 
   async createRoom(name: string): Promise<void> {
     this.lastJoin = null;
-    localStorage.setItem(NAME_KEY, name);
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
+    writeStorage(NAME_KEY, name);
     this.operation = 'create';
     this.screen = 'connecting';
     this.isHost = true;
@@ -128,7 +333,7 @@ class Session {
         this.lobby = lobby;
         if (this.screen === 'connecting') this.screen = 'lobby';
       },
-      onView: (view: PlayerView) => this.handleView(view),
+      onView: (view: PlayerView, notices?: PublicNotice[]) => this.handleView(view, notices),
       onError: (message: string) => this.showToast(message)
     };
     this.host = new HostSession(
@@ -141,7 +346,6 @@ class Session {
       try {
         const room = await withTimeout(raw);
         if (this.epoch !== epoch) {
-          // User left while connecting — do not resurrect the session.
           room.destroy();
           return;
         }
@@ -152,7 +356,6 @@ class Session {
         this.screen = 'lobby';
         return;
       } catch (e) {
-        // If the timeout lost the race but the peer opens later, reap it.
         raw.then((r) => r.destroy()).catch(() => {});
         if (this.epoch !== epoch) return;
         const message = (e as Error).message;
@@ -167,6 +370,7 @@ class Session {
   }
 
   async joinRoom(codeInput: string, name: string, isRejoin = false): Promise<void> {
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.operation = isRejoin ? 'rejoin' : 'join';
     const code = normalizeCode(codeInput);
     if (!code) {
@@ -174,7 +378,7 @@ class Session {
       this.showToast('Room codes are 5 letters/numbers, like KP4XQ');
       return;
     }
-    localStorage.setItem(NAME_KEY, name);
+    writeStorage(NAME_KEY, name);
     this.lastJoin = { code, name };
     this.screen = 'connecting';
     this.isHost = false;
@@ -183,35 +387,33 @@ class Session {
     try {
       const { conn, destroy } = await withTimeout(raw);
       if (this.epoch !== epoch) {
-        // User left while connecting — do not resurrect the session.
         destroy();
         return;
       }
       this.destroyPeer = destroy;
       this.roomCode = code;
-      this.guest = new GuestSession(conn, name.trim() || 'Player', localStorage.getItem(tokenKey(code)), {
+      this.guest = new GuestSession(conn, name.trim() || 'Player', readStorage(tokenKey(code)), {
         onWelcome: (playerId, token) => {
           this.playerId = playerId;
-          localStorage.setItem(tokenKey(code), token);
+          writeStorage(tokenKey(code), token);
         },
         onLobby: (lobby) => {
           this.operation = null;
           this.lobby = lobby;
           this.screen = 'lobby';
         },
-        onView: (view) => this.handleView(view),
+        onView: (view, notices) => this.handleView(view, notices),
         onRejected: (reason) => {
-          if (reason === 'badToken') localStorage.removeItem(tokenKey(code));
+          if (reason === 'badToken' && typeof localStorage !== 'undefined') {
+            localStorage.removeItem(tokenKey(code));
+          }
           this.fail(reason);
         },
         onError: (message) => this.showToast(message),
-        onClosed: () => {
-          if (this.screen === 'fatal' || this.screen === 'home') return;
-          this.fail('roomUnavailable');
-        }
+        onClosed: () => this.handleGuestClosed(),
+        onConnectionStatus: (status) => this.handleGuestStatus(status)
       });
     } catch (e) {
-      // If the timeout lost the race but the peer opens later, reap it.
       raw.then((r) => r.destroy()).catch(() => {});
       if (this.epoch !== epoch) return;
       const message = (e as Error).message;
@@ -225,6 +427,19 @@ class Session {
       return;
     }
     if (this.lastJoin) void this.joinRoom(this.lastJoin.code, this.lastJoin.name, true);
+  }
+
+  retryRecovery(): void {
+    if (this.recovery !== 'networkUnavailable') return;
+    this.bumpSelectionEpoch();
+    this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
+    void this.recoverGuest();
+  }
+
+  dropGuestConnectionForTest(): void {
+    if (!import.meta.env.DEV || this.isHost || !this.guest) return;
+    this.handleGuestStatus('unstable');
+    setTimeout(() => this.guest?.close(), 60);
   }
 
   clearFatalToHome(): void {
@@ -251,10 +466,12 @@ class Session {
   }
 
   skipTurn(playerId: string): void {
+    if (!this.isHost) return;
     this.host?.skipTurn(playerId);
   }
 
   removeSeat(playerId: string): void {
+    if (!this.isHost) return;
     this.host?.removeSeat(playerId);
   }
 
@@ -269,10 +486,14 @@ class Session {
     this.lobby = null;
     this.view = null;
     this.banner = null;
+    this.noticeHistory = [];
+    this.noticeQueue = [];
     this.fxEvent = null;
     clearTimeout(this.bannerTimer);
+    clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.lastFailWasCreate = false;
     this.isHost = false;
     this.playerId = null;

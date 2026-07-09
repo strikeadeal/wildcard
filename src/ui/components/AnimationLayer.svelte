@@ -16,7 +16,7 @@
     if (!fx || fx.nonce === lastNonce) return;
     lastNonce = fx.nonce;
     if (prefersReducedMotion()) return;
-    if (fx.kind === 'draw' && !fx.toSelf) ghostDraw(fx.playerId);
+    if (fx.kind === 'draw' && !fx.toSelf) ghostDraw(fx.playerId, fx.n);
     else if (fx.kind === 'uno') showUno(fx.playerId, fx.isYou);
     else if (fx.kind === 'win') confettiNonce++;
   });
@@ -29,11 +29,15 @@
     return d;
   }
 
-  function ghostDraw(playerId: string) {
+  function ghostDraw(playerId: string, count = 1) {
     const from = getAnchorRect('deck');
     const to = getAnchorRect('seat:' + playerId);
     if (!from || !to) return;
-    flyGhost({ fromRect: from, toRect: to, build: () => buildBack(from.width, from.height) });
+    for (let i = 0; i < Math.min(count, 4); i++) {
+      setTimeout(() => {
+        flyGhost({ fromRect: from, toRect: to, build: () => buildBack(from.width, from.height) });
+      }, i * 55);
+    }
   }
 
   function showUno(playerId: string, isYou: boolean) {

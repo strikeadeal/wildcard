@@ -7,13 +7,22 @@
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
+  import ActionHistory from '../components/ActionHistory.svelte';
   import AnimationLayer from '../components/AnimationLayer.svelte';
-  import type { Card, Color } from '../../engine/types';
+  import ReconnectOverlay from '../components/ReconnectOverlay.svelte';
+  import type { Card, Color, OpponentView } from '../../engine/types';
   import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
   import { cubicOut } from 'svelte/easing';
+  import { deriveActionPrompt } from '../action-prompt';
+  import { noticeToGameEvent } from '../public-notices';
+  import type { RecoveryState } from '../connection-state';
 
   const view = $derived(session.view);
+  const recovery = $derived(session.recovery);
+  const selectionEpoch = $derived(session.selectionEpoch);
+  const recovering = $derived(recovery !== 'idle');
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
+  const prompt = $derived(view ? deriveActionPrompt(view) : null);
   const others = $derived.by(() => {
     if (!view) return [];
     const idx = view.players.findIndex((p) => p.id === view.you.id);
@@ -24,21 +33,21 @@
   // {#key}) only when that specific special lands, not on every event.
   let stampNonce = $state(0);
   let spinNonce = $state(0);
+  let lastNoticeFxId = $state(-1);
   $effect(() => {
     const fx = session.fxEvent;
     if (fx?.kind !== 'special') return;
     if (fx.card.value === 'skip') stampNonce = fx.nonce;
     else if (fx.card.value === 'reverse') spinNonce = fx.nonce;
   });
-  const turnName = $derived(
-    view?.players.find((p) => p.id === view?.turnPlayerId)?.name ?? ''
-  );
-  const stuckPlayer = $derived.by(() => {
-    if (!view || !session.isHost || view.phase === 'roundEnd') return null;
-    const holder = view.players.find((p) => p.id === view.turnPlayerId);
-    return holder && !holder.connected ? holder : null;
+  $effect(() => {
+    const notice = session.currentNotice;
+    const youId = view?.you.id ?? '';
+    if (!notice || notice.id === lastNoticeFxId) return;
+    lastNoticeFxId = notice.id;
+    const event = noticeToGameEvent(notice, youId);
+    if (event) session.fxEvent = { ...event, nonce: notice.id };
   });
-
   // FLIP / JS transitions aren't caught by the CSS reduced-motion kill-switch.
   const reduce = prefersReducedMotion();
   const flipDur = reduce ? 0 : 220;
@@ -71,9 +80,27 @@
   }
 
   let pendingWild = $state<number | null>(null);
+  let lastSelectionEpoch = $state(-1);
+  $effect(() => {
+    if (selectionEpoch === lastSelectionEpoch) return;
+    lastSelectionEpoch = selectionEpoch;
+    pendingWild = null;
+  });
+  $effect(() => {
+    if (!import.meta.env.DEV) return;
+    const testApi = ((window as any).__wildcardTest ??= {});
+    testApi.openPendingWildPicker = () => {
+      if (!recovering && view) pendingWild = Number.MAX_SAFE_INTEGER;
+    };
+    return () => {
+      if ((window as any).__wildcardTest?.openPendingWildPicker) {
+        delete (window as any).__wildcardTest.openPendingWildPicker;
+      }
+    };
+  });
 
   function cardClicked(card: Card) {
-    if (!view || !view.playableCardIds.includes(card.id)) return;
+    if (recovering || !view || !view.playableCardIds.includes(card.id)) return;
     if (card.color === null) {
       pendingWild = card.id;
       return;
@@ -82,11 +109,13 @@
   }
 
   function play(cardId: number, chosenColor?: Color) {
+    if (recovering) return;
     if (myTurn) session.sendAction({ type: 'playCard', cardId, chosenColor });
     else session.sendAction({ type: 'jumpIn', cardId, chosenColor });
   }
 
   function pickColor(color: Color) {
+    if (recovering) return;
     if (pendingWild !== null) {
       play(pendingWild, color);
       pendingWild = null;
@@ -94,10 +123,17 @@
       session.sendAction({ type: 'chooseColor', color });
     }
   }
+
+  function removePlayer(player: OpponentView) {
+    if (recovering) return;
+    if (confirm(`${player.name} will be removed from this game.`)) {
+      session.removeSeat(player.id);
+    }
+  }
 </script>
 
 {#if view}
-  <div class="table">
+  <div class="table" class:my-turn={myTurn}>
     <div class="opponents">
       {#each others as p (p.id)}
         <OpponentSeat
@@ -105,17 +141,33 @@
           isTurn={view.turnPlayerId === p.id}
           catchable={view.catchableIds.includes(p.id)}
           drewNonce={drawFx && drawFx.playerId === p.id ? drawFx.nonce : 0}
-          oncatch={() => session.sendAction({ type: 'catchUno', targetId: p.id })}
+          onskip={session.isHost && !p.connected && view.turnPlayerId === p.id
+            ? () => session.skipTurn(p.id)
+            : undefined}
+          onremove={session.isHost && !p.connected
+            ? () => removePlayer(p)
+            : undefined}
+          oncatch={() => {
+            if (!recovering) session.sendAction({ type: 'catchUno', targetId: p.id });
+          }}
         />
       {/each}
     </div>
 
     <div class="center">
-      <div class="announce-slot"><Announce /></div>
+      <div class="notice-stack">
+        <div class="announce-slot"><Announce /></div>
+        <ActionHistory />
+      </div>
       <div class="piles">
         <div class="drawpile">
           <div class="stack" use:anchor={'deck'}>
-            <CardFace facedown onclick={view.canDraw ? () => session.sendAction({ type: 'drawCard' }) : undefined} />
+            <CardFace
+              facedown
+              onclick={!recovering && view.canDraw
+                ? () => session.sendAction({ type: 'drawCard' })
+                : undefined}
+            />
           </div>
           <small>{view.deckCount} in deck</small>
           {#key view.pendingDraw}
@@ -149,28 +201,18 @@
         {/key}
       </div>
 
-      <p class="status" class:mine={myTurn} aria-live="polite">
-        {myTurn ? 'Your turn' : turnName + "'s turn"}
-      </p>
-
-      {#if stuckPlayer}
-        <div class="stuck">
-          <small>{stuckPlayer.name} is disconnected.</small>
-          <button class="ghost small" onclick={() => session.skipTurn(stuckPlayer.id)}>Skip their turn</button>
-          <button class="ghost small" onclick={() => session.removeSeat(stuckPlayer.id)}>Remove them</button>
-        </div>
-      {/if}
+      <p class="status {prompt?.tone}" aria-live="polite">{prompt?.text}</p>
     </div>
 
-    <div class="actions">
+      <div class="actions">
       {#if view.canChallenge}
-        <button onclick={() => session.sendAction({ type: 'challengeWildFour' })}>Challenge the +4</button>
+        <button disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'challengeWildFour' }) : undefined}>Challenge the +4</button>
       {/if}
       {#if view.canPass}
-        <button class="ghost" onclick={() => session.sendAction({ type: 'passTurn' })}>Keep it</button>
+        <button class="ghost" disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'passTurn' }) : undefined}>Keep it</button>
       {/if}
       {#if view.canCallUno}
-        <button class="lastcard" onclick={() => session.sendAction({ type: 'callUno' })}>Last card!</button>
+        <button class="lastcard" disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'callUno' }) : undefined}>Last card!</button>
       {/if}
     </div>
 
@@ -184,17 +226,23 @@
           <CardFace
             {card}
             playable={view.playableCardIds.includes(card.id)}
-            onclick={view.playableCardIds.includes(card.id) ? () => cardClicked(card) : undefined}
+            onclick={!recovering && view.playableCardIds.includes(card.id)
+              ? () => cardClicked(card)
+              : undefined}
           />
         </div>
       {/each}
     </div>
   </div>
 
-  {#if pendingWild !== null || view.mustChooseColor}
+  {#if recovery !== 'idle'}
+    <ReconnectOverlay state={recovery as RecoveryState} />
+  {/if}
+
+  {#if !recovering && (pendingWild !== null || view.mustChooseColor)}
     <ColorPicker onpick={pickColor} />
   {/if}
-  {#if view.mustChooseSwapTarget}
+  {#if !recovering && view.mustChooseSwapTarget}
     <SwapPicker
       players={others}
       onpick={(id) => session.sendAction({ type: 'chooseSwapTarget', targetId: id })}
@@ -217,6 +265,10 @@
       calc(12px + var(--safe-bottom))
       calc(12px + var(--safe-left));
     gap: 6px;
+  }
+  .table.my-turn .hand {
+    outline: 1px solid rgb(230 184 75 / 0.45);
+    box-shadow: 0 0 0 1px rgb(230 184 75 / 0.2) inset, 0 0 24px rgb(230 184 75 / 0.18);
   }
   .opponents {
     display: flex;
@@ -251,15 +303,23 @@
   }
   .center > * { position: relative; }
   /* Announcement banner floats near the top of the pitch, above the piles. */
-  .announce-slot {
+  .notice-stack {
     position: absolute;
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 5;
     display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: min(92%, 440px);
+    pointer-events: none;
+  }
+  .announce-slot {
+    display: flex;
     justify-content: center;
-    max-width: 92%;
+    width: 100%;
     pointer-events: none;
   }
   .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
@@ -313,18 +373,26 @@
     background: rgb(0 0 0 / 0.22);
     border: 1px solid var(--line);
   }
-  .status.mine {
+  .status.active {
     color: var(--felt-edge);
     background: var(--brass);
     border-color: transparent;
     animation: turnglow 2s ease-in-out infinite;
   }
+  .status.waiting {
+    color: var(--text);
+    background: rgb(0 0 0 / 0.22);
+    border-color: var(--line);
+  }
+  .status.urgent {
+    color: var(--ink-yellow);
+    background: var(--card-yellow);
+    border-color: transparent;
+  }
   @keyframes turnglow {
     0%, 100% { box-shadow: 0 0 0 0 rgb(230 184 75 / 0); }
     50% { box-shadow: 0 0 22px 2px rgb(230 184 75 / 0.55); }
   }
-
-  .stuck { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
 
   .actions { display: flex; justify-content: center; gap: 10px; min-height: 48px; flex-wrap: wrap; }
@@ -344,6 +412,8 @@
     padding: 18px 10px 6px;
     --card-w: 74px;
     scrollbar-width: none;
+    border-radius: 16px;
+    transition: outline-color var(--motion-medium) ease, box-shadow var(--motion-medium) ease;
   }
   .hand::-webkit-scrollbar { display: none; }
   /* Hold them like a real hand: a slight overlap. */

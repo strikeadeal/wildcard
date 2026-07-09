@@ -1,8 +1,11 @@
 /** Minimal duplex message channel. PeerJS DataConnection adapts to this (Task 10). */
+export type ConnectionHealth = 'connecting' | 'connected' | 'unstable' | 'closed';
+
 export interface Connection {
   send(msg: unknown): void;
   onMessage(cb: (msg: unknown) => void): void;
   onClose(cb: () => void): void;
+  onStatus(cb: (status: ConnectionHealth) => void): void;
   close(): void;
 }
 
@@ -17,11 +20,13 @@ export function createLoopbackPair(): [Connection, Connection] {
   const make = (): LoopEnd => {
     let onMsg: (msg: unknown) => void = () => {};
     let onCls: () => void = () => {};
+    let onStat: (status: ConnectionHealth) => void = () => {};
     let open = true;      // gates send/deliver
     let notified = false; // guarantees onClose fires at most once
     const notifyClose = () => {
       if (notified) return;
       notified = true;
+      onStat('closed');
       onCls();
     };
     const self: LoopEnd = {
@@ -32,6 +37,10 @@ export function createLoopbackPair(): [Connection, Connection] {
       },
       onMessage(cb: (msg: unknown) => void) { onMsg = cb; },
       onClose(cb: () => void) { onCls = cb; },
+      onStatus(cb: (status: ConnectionHealth) => void) {
+        onStat = cb;
+        cb(open ? 'connected' : 'closed');
+      },
       close() {
         if (!open) return;
         open = false;

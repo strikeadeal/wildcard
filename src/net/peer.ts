@@ -1,7 +1,7 @@
 import Peer, { type DataConnection, type PeerOptions } from 'peerjs';
 import { codeToPeerId } from './codes';
 import { buildIceConfig, type TurnEnvironment } from './ice';
-import type { Connection } from './transport';
+import type { Connection, ConnectionHealth } from './transport';
 
 /**
  * E2E and local dev can point at a local PeerServer via Vite env:
@@ -34,23 +34,81 @@ export function peerOptions(env: PeerEnvironment = import.meta.env): PeerOptions
 // instead of relying on events that may never come.
 const ICE_DISCONNECT_GRACE_MS = 4_000;
 
-function wrap(dc: DataConnection): Connection {
-  let onMsg: (msg: unknown) => void = () => {};
-  let onCls: () => void = () => {};
-  let notified = false;
+export function bindIceHealth(
+  pc: Pick<RTCPeerConnection, 'iceConnectionState' | 'addEventListener' | 'removeEventListener'>,
+  {
+    onHealth,
+    disconnectGraceMs = ICE_DISCONNECT_GRACE_MS
+  }: {
+    onHealth: (status: Exclude<ConnectionHealth, 'connecting'>) => void;
+    disconnectGraceMs?: number;
+  }
+): () => void {
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  const emitDisconnected = () => {
+    if (closed) return;
+    onHealth('unstable');
+    if (disconnectTimer !== undefined) return;
+    disconnectTimer = setTimeout(() => {
+      disconnectTimer = undefined;
+      const settled = pc.iceConnectionState;
+      if (settled !== 'connected' && settled !== 'completed') emitClosed();
+    }, disconnectGraceMs);
+  };
   const clearDisconnectTimer = () => {
     if (disconnectTimer !== undefined) {
       clearTimeout(disconnectTimer);
       disconnectTimer = undefined;
     }
   };
+  const emitClosed = () => {
+    if (closed) return;
+    closed = true;
+    clearDisconnectTimer();
+    onHealth('closed');
+  };
+  const onIceConnectionStateChange = () => {
+    const state = pc.iceConnectionState;
+    if (state === 'failed' || state === 'closed') {
+      emitClosed();
+    } else if (state === 'disconnected') {
+      emitDisconnected();
+    } else if (state === 'connected' || state === 'completed') {
+      clearDisconnectTimer();
+      onHealth('connected');
+    }
+  };
+  pc.addEventListener('iceconnectionstatechange', onIceConnectionStateChange);
+  const initial = pc.iceConnectionState;
+  if (initial === 'connected' || initial === 'completed') onHealth('connected');
+  else if (initial === 'disconnected') emitDisconnected();
+  else if (initial === 'failed' || initial === 'closed') emitClosed();
+  return () => {
+    clearDisconnectTimer();
+    pc.removeEventListener('iceconnectionstatechange', onIceConnectionStateChange);
+  };
+}
+
+function wrap(dc: DataConnection): Connection {
+  let onMsg: (msg: unknown) => void = () => {};
+  let onCls: () => void = () => {};
+  let onStat: (status: ConnectionHealth) => void = () => {};
+  let notified = false;
+  let status: ConnectionHealth = 'connecting';
+  let unbindIceHealth: (() => void) | undefined;
+  const setStatus = (next: ConnectionHealth) => {
+    status = next;
+    onStat(next);
+  };
   // PeerJS may emit 'error' and 'close' for the same failure; the Connection
   // contract is onClose at most once.
   const notifyClose = () => {
     if (notified) return;
     notified = true;
-    clearDisconnectTimer();
+    unbindIceHealth?.();
+    unbindIceHealth = undefined;
+    setStatus('closed');
     onCls();
   };
   let iceWatchAttached = false;
@@ -59,21 +117,10 @@ function wrap(dc: DataConnection): Connection {
     const pc = dc.peerConnection;
     if (!pc) return;
     iceWatchAttached = true;
-    pc.addEventListener('iceconnectionstatechange', () => {
-      const state = pc.iceConnectionState;
-      if (state === 'failed' || state === 'closed') {
-        clearDisconnectTimer();
-        notifyClose();
-      } else if (state === 'disconnected') {
-        if (disconnectTimer === undefined) {
-          disconnectTimer = setTimeout(() => {
-            disconnectTimer = undefined;
-            const settled = pc.iceConnectionState;
-            if (settled !== 'connected' && settled !== 'completed') notifyClose();
-          }, ICE_DISCONNECT_GRACE_MS);
-        }
-      } else if (state === 'connected' || state === 'completed') {
-        clearDisconnectTimer();
+    unbindIceHealth = bindIceHealth(pc, {
+      onHealth: (health) => {
+        if (health === 'closed') notifyClose();
+        else setStatus(health);
       }
     });
   };
@@ -89,6 +136,10 @@ function wrap(dc: DataConnection): Connection {
     send: (msg) => dc.send(msg),
     onMessage: (cb) => { onMsg = cb; },
     onClose: (cb) => { onCls = cb; },
+    onStatus: (cb) => {
+      onStat = cb;
+      cb(status);
+    },
     close: () => dc.close()
   };
 }
