@@ -3,6 +3,7 @@ import { createGame, removePlayer } from '../engine/game';
 import { playerIndex } from '../engine/helpers';
 import { redact } from '../engine/redact';
 import type { Action, GameState, PlayerView, RuleConfig } from '../engine/types';
+import { deriveActionNotices, type PublicNotice } from '../ui/public-notices';
 import { PROTOCOL_VERSION, type ClientMsg, type LobbyInfo, type ServerMsg } from './protocol';
 import type { Connection } from './transport';
 
@@ -22,8 +23,10 @@ interface SeatRecord {
 export class HostSession {
   readonly hostPlayerId = 'p0' as const;
   state: GameState | null = null;
+  lastNotices: PublicNotice[] = [];
   private seats: SeatRecord[] = [];
   private nextSeat = 1;
+  private nextNoticeId = 1;
   private config: RuleConfig;
 
   constructor(
@@ -110,12 +113,14 @@ export class HostSession {
       this.errorTo(seat, 'The game has not started yet');
       return;
     }
-    const result = apply(this.state, seat.id, action);
+    const before = this.state;
+    const result = apply(before, seat.id, action);
     if (!result.ok) {
       this.errorTo(seat, result.error);
       return;
     }
     this.state = result.state;
+    this.lastNotices = this.makeNotices(before, seat.id, action);
     this.broadcastViews();
   }
 
@@ -202,6 +207,13 @@ export class HostSession {
     if (!this.state) return;
     const result = apply(this.state, playerId, action);
     if (result.ok) this.state = result.state;
+  }
+
+  private makeNotices(before: GameState, actorId: string, action: Action): PublicNotice[] {
+    if (!this.state) return [];
+    const notices = deriveActionNotices(before, this.state, actorId, action, this.nextNoticeId);
+    this.nextNoticeId += notices.length;
+    return notices;
   }
 
   private setConnected(playerId: string, connected: boolean): void {

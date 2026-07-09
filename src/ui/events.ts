@@ -36,13 +36,11 @@ function deriveBanner(prev: PlayerView | null, next: PlayerView): { banner: stri
   const fromSelf = discardChanged && prev.turnPlayerId === next.you.id;
 
   if (next.pendingDraw > prev.pendingDraw) {
-    const delta = next.pendingDraw - prev.pendingDraw;
     const isYou = next.turnPlayerId === next.you.id;
     const name = isYou
-      ? 'You'
+      ? 'you'
       : next.players.find((p) => p.id === next.turnPlayerId)?.name ?? 'Next player';
-    const verb = isYou ? 'draw' : 'draws';
-    return { banner: `${name} ${verb} +${delta}`, fromSelf };
+    return { banner: `Penalty is now +${next.pendingDraw} for ${name}`, fromSelf };
   }
 
   if (discardChanged && next.discardTop.color === null && next.phase !== 'chooseColor') {

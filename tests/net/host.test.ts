@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { HostSession, type HostEvents } from '../../src/net/host';
 import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { PROTOCOL_VERSION, type ServerMsg } from '../../src/net/protocol';
-import { DEFAULT_RULES, type PlayerView } from '../../src/engine/types';
+import { DEFAULT_RULES, type GameState, type PlayerView } from '../../src/engine/types';
 import type { LobbyInfo } from '../../src/net/protocol';
+import { C, fixedState } from '../engine/fixtures';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -127,6 +128,23 @@ describe('HostSession', () => {
     }
   });
 
+  it('stores derived public notices after a successful action', async () => {
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+    host.startGame();
+    await flush();
+    host.state = fixedTwoPlayerState();
+
+    a.intent({ type: 'playCard', cardId: 9001 });
+    await flush();
+
+    expect(host.lastNotices).toEqual([
+      { id: 1, kind: 'play', actorId: 'p1', card: { color: 'red', value: 'draw2' } },
+      { id: 2, kind: 'penalty', actorId: 'p1', targetId: 'p0', count: 2, pendingDraw: 2, stacked: false }
+    ]);
+  });
+
   it('marks disconnects and restores a seat on token rejoin', async () => {
     const a = new Wire(host);
     a.hello('Ada');
@@ -233,3 +251,11 @@ describe('HostSession', () => {
     expect(seeded.state?.seed).toBe(1235); // deal() advances the supplied seed once
   });
 });
+
+function fixedTwoPlayerState(): GameState {
+  return fixedState(
+    [[C('blue', '3', 9000)], [C('red', 'draw2', 9001), C('yellow', '9', 9004)]],
+    C('red', '5', 9003),
+    { turn: 1 }
+  );
+}
