@@ -241,9 +241,12 @@ export class HostSession {
     if (this.state) {
       const idx = playerIndex(this.state, playerId);
       if (idx !== -1) {
+        const wasConnected = this.state.players[idx]!.connected;
         this.state = structuredClone(this.state);
         this.state.players[idx]!.connected = connected;
-        this.lastNotices = this.makeConnectionNotices(playerId, connected);
+        this.lastNotices = wasConnected === connected
+          ? []
+          : this.makeConnectionNotices(playerId, connected);
       } else {
         this.lastNotices = [];
       }

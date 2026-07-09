@@ -184,6 +184,7 @@ describe('HostSession', () => {
     expect(a.closed).toBe(true); // host closed the superseded connection
     // The old connection's onClose must not mark the seat disconnected.
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
+    expect(host.lastNotices).toEqual([]);
   });
 
   it('does not throw on a malformed hello (non-string name/token) and still seats the guest', async () => {
