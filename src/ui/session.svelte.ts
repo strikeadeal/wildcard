@@ -6,6 +6,8 @@ import { HostSession } from '../net/host';
 import { hostRoom, joinRoom as peerJoin } from '../net/peer';
 import type { LobbyInfo } from '../net/protocol';
 import type { FatalReason } from './fatal-state';
+import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
+import type { PublicNotice } from './public-notices';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 export type Operation = 'create' | 'join' | 'rejoin' | null;
@@ -39,6 +41,8 @@ class Session {
   toast = $state<string | null>(null);
   /** Transient game announcement (wild colour pick, +2/+4), separate from errors. */
   banner = $state<string | null>(null);
+  noticeHistory = $state<PublicNotice[]>([]);
+  noticeQueue = $state<PublicNotice[]>([]);
   /** True when the local player made the most recent play — drives fly direction. */
   lastPlayFromSelf = $state(false);
   /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
@@ -49,6 +53,7 @@ class Session {
   isHost = $state(false);
   playerId = $state<string | null>(null);
   prefillCode = $state('');
+  currentNotice = $derived(this.noticeQueue[0] ?? null);
 
   gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
 
@@ -58,6 +63,7 @@ class Session {
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private bannerTimer: ReturnType<typeof setTimeout> | undefined;
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private fxNonce = 0;
   /** True when the most recent fail() happened during a create, not a join. */
   private lastFailWasCreate = false;
@@ -92,20 +98,39 @@ class Session {
     this.bannerTimer = setTimeout(() => (this.banner = null), 2400);
   }
 
+  private scheduleNoticeDismissal(): void {
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.dismissCurrentNotice(), 2400);
+  }
+
   /**
    * Both host and guest funnel incoming views here. The banner (wild colour,
    * +2/+4) and the animation event (draw/special/uno/win) are both derived by
    * diffing the previous view against the new one — the client has no event
    * stream — before the new view is stored.
    */
-  private handleView(view: PlayerView): void {
-    const { banner, fromSelf, event } = deriveViewChange(this.view, view);
-    this.lastPlayFromSelf = fromSelf;
-    if (banner) this.showBanner(banner);
-    if (event) this.fxEvent = { ...event, nonce: ++this.fxNonce };
+  private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
+    this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
+    const nextQueue = appendNoticeQueue(this.noticeQueue, notices);
+    const shouldScheduleNotice = this.noticeQueue.length === 0 && nextQueue.length > 0;
+    this.noticeQueue = nextQueue;
+    if (shouldScheduleNotice) this.scheduleNoticeDismissal();
+
+    if (notices.length === 0) {
+      const { banner, fromSelf, event } = deriveViewChange(this.view, view);
+      this.lastPlayFromSelf = fromSelf;
+      if (banner) this.showBanner(banner);
+      if (event) this.fxEvent = { ...event, nonce: ++this.fxNonce };
+    }
     this.view = view;
     this.operation = null;
     this.screen = 'game';
+  }
+
+  dismissCurrentNotice(): void {
+    this.noticeQueue = this.noticeQueue.slice(1);
+    clearTimeout(this.noticeTimer);
+    if (this.noticeQueue.length) this.scheduleNoticeDismissal();
   }
 
   private fail(reason: FatalReason): void {
@@ -128,7 +153,7 @@ class Session {
         this.lobby = lobby;
         if (this.screen === 'connecting') this.screen = 'lobby';
       },
-      onView: (view: PlayerView) => this.handleView(view),
+      onView: (view: PlayerView, notices?: PublicNotice[]) => this.handleView(view, notices),
       onError: (message: string) => this.showToast(message)
     };
     this.host = new HostSession(
@@ -199,7 +224,7 @@ class Session {
           this.lobby = lobby;
           this.screen = 'lobby';
         },
-        onView: (view) => this.handleView(view),
+        onView: (view, notices) => this.handleView(view, notices),
         onRejected: (reason) => {
           if (reason === 'badToken') localStorage.removeItem(tokenKey(code));
           this.fail(reason);
@@ -271,8 +296,11 @@ class Session {
     this.lobby = null;
     this.view = null;
     this.banner = null;
+    this.noticeHistory = [];
+    this.noticeQueue = [];
     this.fxEvent = null;
     clearTimeout(this.bannerTimer);
+    clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;
     this.lastFailWasCreate = false;

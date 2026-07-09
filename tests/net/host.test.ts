@@ -145,6 +145,17 @@ describe('HostSession', () => {
     ]);
   });
 
+  it('sends public notices alongside the resulting view', async () => {
+    const w = new Wire(host);
+    w.hello('Ada');
+    await flush();
+    host.startGame();
+    await flush();
+    host.applyLocal({ type: 'drawCard' });
+    await flush();
+    expect(w.last('view')?.notices?.every((n) => Number.isInteger(n.id))).toBe(true);
+  });
+
   it('marks disconnects and restores a seat on token rejoin', async () => {
     const a = new Wire(host);
     a.hello('Ada');

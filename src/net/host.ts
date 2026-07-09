@@ -9,7 +9,7 @@ import type { Connection } from './transport';
 
 export interface HostEvents {
   onLobby(lobby: LobbyInfo): void;
-  onView(view: PlayerView): void;
+  onView(view: PlayerView, notices?: PublicNotice[]): void;
   onError(message: string): void;
 }
 
@@ -120,8 +120,9 @@ export class HostSession {
       return;
     }
     this.state = result.state;
-    this.lastNotices = this.makeNotices(before, seat.id, action);
-    this.broadcastViews();
+    const notices = this.makeNotices(before, seat.id, action);
+    this.lastNotices = notices;
+    this.broadcastViews(notices);
   }
 
   applyLocal(action: Action): void {
@@ -173,7 +174,7 @@ export class HostSession {
       }
     }
     this.lastNotices = notices;
-    this.broadcastViews();
+    this.broadcastViews(notices);
   }
 
   /** Host power: permanently deal a guest out. */
@@ -189,7 +190,7 @@ export class HostSession {
       const before = this.state;
       this.state = removePlayer(this.state, playerId);
       this.lastNotices = this.makeStateNotices(before, this.state);
-      this.broadcastViews();
+      this.broadcastViews(this.lastNotices);
     } else {
       this.broadcastLobby();
     }
@@ -233,10 +234,6 @@ export class HostSession {
     return notices;
   }
 
-  private makeConnectionNotices(playerId: string, connected: boolean): PublicNotice[] {
-    return [deriveConnectionNotice(playerId, connected, this.nextNoticeId++)];
-  }
-
   private setConnected(playerId: string, connected: boolean): void {
     if (this.state) {
       const idx = playerIndex(this.state, playerId);
@@ -244,9 +241,13 @@ export class HostSession {
         const wasConnected = this.state.players[idx]!.connected;
         this.state = structuredClone(this.state);
         this.state.players[idx]!.connected = connected;
-        this.lastNotices = wasConnected === connected
-          ? []
-          : this.makeConnectionNotices(playerId, connected);
+        if (wasConnected !== connected) {
+          const notice = deriveConnectionNotice(playerId, connected, this.nextNoticeId++);
+          this.lastNotices = [notice];
+          this.broadcastViews([notice]);
+          return;
+        }
+        this.lastNotices = [];
       } else {
         this.lastNotices = [];
       }
@@ -269,14 +270,14 @@ export class HostSession {
     this.events.onLobby(lobby);
   }
 
-  private broadcastViews(): void {
+  private broadcastViews(notices: PublicNotice[] = []): void {
     if (!this.state) return;
     for (const seat of this.seats) {
       if (seat.conn && playerIndex(this.state, seat.id) !== -1) {
-        this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'view', view: redact(this.state, seat.id) });
+        this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'view', view: redact(this.state, seat.id), notices });
       }
     }
-    this.events.onView(redact(this.state, 'p0'));
+    this.events.onView(redact(this.state, 'p0'), notices);
   }
 
   private send(conn: Connection, msg: ServerMsg): void {
