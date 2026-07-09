@@ -126,3 +126,65 @@ svelte-check found 0 errors and 0 warnings
 ## Concerns
 
 - Session queue timing and dismissal are covered indirectly through typecheck and helper/transport tests, but there is not yet a dedicated session-level test around timer-driven dismissal behavior.
+
+## Review Fix Follow-Up
+
+### Important findings addressed
+
+#### Replay suppression after dismissal
+
+- Root cause: `appendNoticeQueue()` only deduplicated against the live queue.
+- After a notice was dismissed and removed from `noticeQueue`, a replayed `view` carrying the same notice id could append it again even though the session had already seen it.
+- Fix:
+  - `appendNoticeQueue()` now accepts a seen-notices list and deduplicates against those ids.
+  - `handleView()` now passes `noticeHistory` plus the live `noticeQueue` as the seen set, so dismissed notices that remain in bounded history are not re-queued by duplicate/replayed views.
+
+#### Replay suppression coverage
+
+- Added a focused helper test proving a dismissed notice is not re-queued when the same id reappears in a replayed payload.
+
+#### Comment refresh
+
+- Updated the `handleView()` comment to match the real behavior:
+  - transported notices drive queue/history when present
+  - fallback banner/event derivation only applies when no transported notices are supplied
+
+### Covering test command
+
+```bash
+npm test -- tests/ui/notice-queue.test.ts tests/net/host.test.ts tests/net/guest.test.ts
+```
+
+### Covering test output
+
+```text
+> wildcard@0.1.0 test
+> vitest run tests/ui/notice-queue.test.ts tests/net/host.test.ts tests/net/guest.test.ts
+
+
+ RUN  v4.1.9 /Users/patrickhudson/Documents/wildcard
+
+
+ Test Files  3 passed (3)
+      Tests  22 passed (22)
+   Start at  08:35:20
+   Duration  300ms (transform 201ms, setup 0ms, import 254ms, tests 76ms, environment 0ms)
+```
+
+### Check command
+
+```bash
+npm run check
+```
+
+### Check output
+
+```text
+> wildcard@0.1.0 check
+> svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/patrickhudson/Documents/wildcard
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```

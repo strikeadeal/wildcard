@@ -12,8 +12,9 @@ export function mergeNoticeHistory(
 
 export function appendNoticeQueue(
   current: PublicNotice[],
-  incoming: PublicNotice[]
+  incoming: PublicNotice[],
+  seenNotices: PublicNotice[] = current
 ): PublicNotice[] {
-  const seen = new Set(current.map((n) => n.id));
+  const seen = new Set(seenNotices.map((n) => n.id));
   return [...current, ...incoming.filter((n) => !seen.has(n.id))];
 }

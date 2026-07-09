@@ -104,14 +104,16 @@ class Session {
   }
 
   /**
-   * Both host and guest funnel incoming views here. The banner (wild colour,
-   * +2/+4) and the animation event (draw/special/uno/win) are both derived by
-   * diffing the previous view against the new one — the client has no event
-   * stream — before the new view is stored.
+   * Both host and guest funnel incoming views here. Transported notices drive
+   * queue/history state when present; otherwise older hosts still fall back to
+   * deriving banner and animation changes by diffing consecutive views.
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
     this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
-    const nextQueue = appendNoticeQueue(this.noticeQueue, notices);
+    const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
+      ...this.noticeHistory,
+      ...this.noticeQueue
+    ]);
     const shouldScheduleNotice = this.noticeQueue.length === 0 && nextQueue.length > 0;
     this.noticeQueue = nextQueue;
     if (shouldScheduleNotice) this.scheduleNoticeDismissal();
