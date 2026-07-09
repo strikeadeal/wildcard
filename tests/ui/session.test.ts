@@ -84,6 +84,33 @@ describe('session notice handling', () => {
     expect(session.lastPlayFromSelf).toBe(false);
   });
 
+  it('queues a fresh transported notice as the current announcement', () => {
+    (session as any).view = view({ discardTop: C('red', '5'), turnPlayerId: 'p0' });
+    session.noticeHistory = [];
+    session.noticeQueue = [];
+
+    (session as any).handleView(
+      view({ discardTop: C('red', '7'), turnPlayerId: 'p1' }),
+      [{ id: 3, kind: 'play', actorId: 'p0', card: { color: 'red', value: '7' } }]
+    );
+
+    expect(session.noticeHistory.map((notice) => notice.id)).toEqual([3]);
+    expect(session.noticeQueue.map((notice) => notice.id)).toEqual([3]);
+    expect(session.currentNotice?.id).toBe(3);
+  });
+
+  it('ends recovery at seat unavailable when auto-rejoin finds a stale token', async () => {
+    storage.set('wildcard:token:KP4XQ', 'stale-token');
+    session.screen = 'game';
+    session.recovery = 'reconnecting';
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+    (session as any).tryRejoinOnce = async () => 'seatUnavailable';
+
+    await (session as any).recoverGuest();
+
+    expect(session.recovery).toBe('seatUnavailable');
+  });
+
   it('bumps selectionEpoch when recovery starts and when a recovered view arrives', () => {
     (session as any).view = view({ discardTop: C('red', '5') });
     session.screen = 'game';

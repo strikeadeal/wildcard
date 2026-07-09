@@ -4,6 +4,7 @@ export type RecoveryState =
   | 'idle'
   | 'unstable'
   | 'reconnecting'
+  | 'seatUnavailable'
   | 'roomUnavailable'
   | 'networkUnavailable';
 
@@ -11,6 +12,7 @@ export type RecoveryEvent =
   | { type: 'transportUnstable' }
   | { type: 'retryStarted' }
   | { type: 'rejoined' }
+  | { type: 'seatMissing' }
   | { type: 'roomMissing' }
   | { type: 'networkFailed' }
   | { type: 'cancelled' };
@@ -23,6 +25,8 @@ export function nextRecoveryState(
     case 'retryStarted': return 'reconnecting';
     case 'rejoined':
     case 'cancelled': return 'idle';
+    case 'seatMissing':
+      return state === 'reconnecting' ? 'seatUnavailable' : state;
     case 'roomMissing':
       return state === 'reconnecting' ? 'roomUnavailable' : state;
     case 'networkFailed':

@@ -11,6 +11,8 @@ describe('nextRecoveryState', () => {
   it('distinguishes unavailable room from unavailable network', () => {
     expect(nextRecoveryState('reconnecting', { type: 'roomMissing' }))
       .toBe('roomUnavailable');
+    expect(nextRecoveryState('reconnecting', { type: 'seatMissing' }))
+      .toBe('seatUnavailable');
     expect(nextRecoveryState('reconnecting', { type: 'networkFailed' }))
       .toBe('networkUnavailable');
   });

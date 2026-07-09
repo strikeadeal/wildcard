@@ -14,12 +14,19 @@ function fakePc(initial: RTCIceConnectionState = 'new') {
     addEventListener(type: string, listener: Listener) {
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
+    removeEventListener(type: string, listener: Listener) {
+      listeners.set(type, (listeners.get(type) ?? []).filter((entry) => entry !== listener));
+    },
     setState(next: RTCIceConnectionState) {
       state = next;
       for (const listener of listeners.get('iceconnectionstatechange') ?? []) listener();
+    },
+    listenerCount(type: string) {
+      return (listeners.get(type) ?? []).length;
     }
-  } as Pick<RTCPeerConnection, 'iceConnectionState' | 'addEventListener'> & {
+  } as Pick<RTCPeerConnection, 'iceConnectionState' | 'addEventListener' | 'removeEventListener'> & {
     setState(next: RTCIceConnectionState): void;
+    listenerCount(type: string): number;
   };
 }
 
@@ -117,5 +124,16 @@ describe('bindIceHealth', () => {
     expect(statuses).toEqual(['connected', 'unstable', 'connected']);
     expect(closed).toBe(0);
     vi.useRealTimers();
+  });
+
+  it('removes the ICE listener when the binding is cleaned up', () => {
+    const pc = fakePc('connected');
+    const dispose = bindIceHealth(pc, { onHealth: () => {} });
+
+    expect(pc.listenerCount('iceconnectionstatechange')).toBe(1);
+
+    dispose();
+
+    expect(pc.listenerCount('iceconnectionstatechange')).toBe(0);
   });
 });

@@ -8,6 +8,7 @@
     switch (state) {
       case 'unstable': return 'Connection unstable…';
       case 'reconnecting': return 'Rejoining your seat…';
+      case 'seatUnavailable': return 'Seat no longer available. Return home to rejoin as a new player.';
       case 'roomUnavailable': return 'Room unavailable. The host may have left.';
       case 'networkUnavailable': return 'Could not reconnect. Check your network.';
       default: return '';
@@ -18,7 +19,7 @@
 <div class="overlay" role="status" aria-live="polite">
   <div class="sheet">
     <p>{message}</p>
-    {#if state === 'roomUnavailable' || state === 'networkUnavailable'}
+    {#if state === 'seatUnavailable' || state === 'roomUnavailable' || state === 'networkUnavailable'}
       <div class="actions">
         {#if state === 'networkUnavailable'}
           <button onclick={() => session.retryRecovery()}>Retry</button>

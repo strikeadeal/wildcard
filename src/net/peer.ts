@@ -35,7 +35,7 @@ export function peerOptions(env: PeerEnvironment = import.meta.env): PeerOptions
 const ICE_DISCONNECT_GRACE_MS = 4_000;
 
 export function bindIceHealth(
-  pc: Pick<RTCPeerConnection, 'iceConnectionState' | 'addEventListener'>,
+  pc: Pick<RTCPeerConnection, 'iceConnectionState' | 'addEventListener' | 'removeEventListener'>,
   {
     onHealth,
     disconnectGraceMs = ICE_DISCONNECT_GRACE_MS
@@ -68,7 +68,7 @@ export function bindIceHealth(
     clearDisconnectTimer();
     onHealth('closed');
   };
-  pc.addEventListener('iceconnectionstatechange', () => {
+  const onIceConnectionStateChange = () => {
     const state = pc.iceConnectionState;
     if (state === 'failed' || state === 'closed') {
       emitClosed();
@@ -78,12 +78,16 @@ export function bindIceHealth(
       clearDisconnectTimer();
       onHealth('connected');
     }
-  });
+  };
+  pc.addEventListener('iceconnectionstatechange', onIceConnectionStateChange);
   const initial = pc.iceConnectionState;
   if (initial === 'connected' || initial === 'completed') onHealth('connected');
   else if (initial === 'disconnected') emitDisconnected();
   else if (initial === 'failed' || initial === 'closed') emitClosed();
-  return clearDisconnectTimer;
+  return () => {
+    clearDisconnectTimer();
+    pc.removeEventListener('iceconnectionstatechange', onIceConnectionStateChange);
+  };
 }
 
 function wrap(dc: DataConnection): Connection {

@@ -12,7 +12,7 @@ import type { PublicNotice } from './public-notices';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 export type Operation = 'create' | 'join' | 'rejoin' | null;
-type RejoinOutcome = 'joined' | 'roomMissing' | 'networkFailed';
+type RejoinOutcome = 'joined' | 'seatUnavailable' | 'roomMissing' | 'networkFailed';
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
@@ -171,11 +171,11 @@ class Session {
     }
     const change = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = change.fromSelf;
-    this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
+    const seenNotices = [...this.noticeHistory, ...this.noticeQueue];
     const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
-      ...this.noticeHistory,
-      ...this.noticeQueue
+      ...seenNotices
     ]);
+    this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
     const shouldScheduleNotice = this.noticeQueue.length === 0 && nextQueue.length > 0;
     this.noticeQueue = nextQueue;
     if (shouldScheduleNotice) this.scheduleNoticeDismissal();
@@ -228,6 +228,10 @@ class Session {
       if (outcome === 'joined') return;
       if (outcome === 'roomMissing') {
         this.recovery = nextRecoveryState(this.recovery, { type: 'roomMissing' });
+        return;
+      }
+      if (outcome === 'seatUnavailable') {
+        this.recovery = nextRecoveryState(this.recovery, { type: 'seatMissing' });
         return;
       }
     }
@@ -285,6 +289,8 @@ class Session {
           onRejected: (reason) => {
             if (reason === 'badToken' && typeof localStorage !== 'undefined') {
               localStorage.removeItem(tokenKey(code));
+              finish('seatUnavailable');
+              return;
             }
             finish('networkFailed');
           },
