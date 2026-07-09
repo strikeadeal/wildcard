@@ -8,12 +8,14 @@
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
   import AnimationLayer from '../components/AnimationLayer.svelte';
-  import type { Card, Color } from '../../engine/types';
+  import type { Card, Color, OpponentView } from '../../engine/types';
   import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
   import { cubicOut } from 'svelte/easing';
+  import { deriveActionPrompt } from '../action-prompt';
 
   const view = $derived(session.view);
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
+  const prompt = $derived(view ? deriveActionPrompt(view) : null);
   const others = $derived.by(() => {
     if (!view) return [];
     const idx = view.players.findIndex((p) => p.id === view.you.id);
@@ -30,15 +32,6 @@
     if (fx.card.value === 'skip') stampNonce = fx.nonce;
     else if (fx.card.value === 'reverse') spinNonce = fx.nonce;
   });
-  const turnName = $derived(
-    view?.players.find((p) => p.id === view?.turnPlayerId)?.name ?? ''
-  );
-  const stuckPlayer = $derived.by(() => {
-    if (!view || !session.isHost || view.phase === 'roundEnd') return null;
-    const holder = view.players.find((p) => p.id === view.turnPlayerId);
-    return holder && !holder.connected ? holder : null;
-  });
-
   // FLIP / JS transitions aren't caught by the CSS reduced-motion kill-switch.
   const reduce = prefersReducedMotion();
   const flipDur = reduce ? 0 : 220;
@@ -94,10 +87,16 @@
       session.sendAction({ type: 'chooseColor', color });
     }
   }
+
+  function removePlayer(player: OpponentView) {
+    if (confirm(`${player.name} will be removed from this game.`)) {
+      session.removeSeat(player.id);
+    }
+  }
 </script>
 
 {#if view}
-  <div class="table">
+  <div class="table" class:my-turn={myTurn}>
     <div class="opponents">
       {#each others as p (p.id)}
         <OpponentSeat
@@ -105,6 +104,12 @@
           isTurn={view.turnPlayerId === p.id}
           catchable={view.catchableIds.includes(p.id)}
           drewNonce={drawFx && drawFx.playerId === p.id ? drawFx.nonce : 0}
+          onskip={session.isHost && !p.connected && view.turnPlayerId === p.id
+            ? () => session.skipTurn(p.id)
+            : undefined}
+          onremove={session.isHost && !p.connected
+            ? () => removePlayer(p)
+            : undefined}
           oncatch={() => session.sendAction({ type: 'catchUno', targetId: p.id })}
         />
       {/each}
@@ -149,17 +154,7 @@
         {/key}
       </div>
 
-      <p class="status" class:mine={myTurn} aria-live="polite">
-        {myTurn ? 'Your turn' : turnName + "'s turn"}
-      </p>
-
-      {#if stuckPlayer}
-        <div class="stuck">
-          <small>{stuckPlayer.name} is disconnected.</small>
-          <button class="ghost small" onclick={() => session.skipTurn(stuckPlayer.id)}>Skip their turn</button>
-          <button class="ghost small" onclick={() => session.removeSeat(stuckPlayer.id)}>Remove them</button>
-        </div>
-      {/if}
+      <p class="status {prompt?.tone}" aria-live="polite">{prompt?.text}</p>
     </div>
 
     <div class="actions">
@@ -217,6 +212,10 @@
       calc(12px + var(--safe-bottom))
       calc(12px + var(--safe-left));
     gap: 6px;
+  }
+  .table.my-turn .hand {
+    outline: 1px solid rgb(230 184 75 / 0.45);
+    box-shadow: 0 0 0 1px rgb(230 184 75 / 0.2) inset, 0 0 24px rgb(230 184 75 / 0.18);
   }
   .opponents {
     display: flex;
@@ -313,18 +312,26 @@
     background: rgb(0 0 0 / 0.22);
     border: 1px solid var(--line);
   }
-  .status.mine {
+  .status.active {
     color: var(--felt-edge);
     background: var(--brass);
     border-color: transparent;
     animation: turnglow 2s ease-in-out infinite;
   }
+  .status.waiting {
+    color: var(--text);
+    background: rgb(0 0 0 / 0.22);
+    border-color: var(--line);
+  }
+  .status.urgent {
+    color: var(--ink-yellow);
+    background: var(--card-yellow);
+    border-color: transparent;
+  }
   @keyframes turnglow {
     0%, 100% { box-shadow: 0 0 0 0 rgb(230 184 75 / 0); }
     50% { box-shadow: 0 0 22px 2px rgb(230 184 75 / 0.55); }
   }
-
-  .stuck { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
 
   .actions { display: flex; justify-content: center; gap: 10px; min-height: 48px; flex-wrap: wrap; }
@@ -344,6 +351,8 @@
     padding: 18px 10px 6px;
     --card-w: 74px;
     scrollbar-width: none;
+    border-radius: 16px;
+    transition: outline-color var(--motion-medium) ease, box-shadow var(--motion-medium) ease;
   }
   .hand::-webkit-scrollbar { display: none; }
   /* Hold them like a real hand: a slight overlap. */

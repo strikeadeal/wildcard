@@ -251,10 +251,12 @@ class Session {
   }
 
   skipTurn(playerId: string): void {
+    if (!this.isHost) return;
     this.host?.skipTurn(playerId);
   }
 
   removeSeat(playerId: string): void {
+    if (!this.isHost) return;
     this.host?.removeSeat(playerId);
   }
 

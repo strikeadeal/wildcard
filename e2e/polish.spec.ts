@@ -55,3 +55,38 @@ test('home fits a 390x844 viewport and exposes safe-area tokens', async ({ page 
     medium: '240ms'
   });
 });
+
+test('table shows actionable prompts, scores, and away-player controls safely', async ({ browser }) => {
+  const host = await browser.newPage();
+  const guestA = await browser.newPage();
+  const guestB = await browser.newPage();
+
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guestA, code, 'Gil');
+  await joinRoom(guestB, code, 'Ira');
+  await expect(host.getByText('Gil')).toBeVisible();
+  await expect(host.getByText('Ira')).toBeVisible();
+  await host.getByRole('button', { name: 'Start game' }).click();
+
+  await expect(host.locator('.status')).toContainText(/Your turn|Waiting for|Jump in now|Choose|Stack|Draw/);
+  await expect(host.locator('.seat').filter({ hasText: 'Gil' }).getByText(/pts$/)).toBeVisible();
+  await expect(host.locator('.seat').filter({ hasText: 'Ira' }).getByText(/pts$/)).toBeVisible();
+
+  await guestA.close({ runBeforeUnload: true });
+
+  const awaySeat = host.locator('.seat').filter({ hasText: 'Gil' });
+  await expect(awaySeat.getByText('Away')).toBeVisible({ timeout: 12_000 });
+  await expect(awaySeat.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 12_000 });
+
+  const skip = awaySeat.getByRole('button', { name: 'Skip once' });
+  if (await awaySeat.evaluate((node) => node.classList.contains('turn'))) {
+    await expect(skip).toBeVisible();
+  } else {
+    await expect(skip).toHaveCount(0);
+  }
+
+  const dialog = host.waitForEvent('dialog').then((d) => d.accept());
+  await awaySeat.getByRole('button', { name: 'Remove' }).click();
+  await dialog;
+  await expect(host.locator('.seat').filter({ hasText: 'Gil' })).toHaveCount(0);
+});
