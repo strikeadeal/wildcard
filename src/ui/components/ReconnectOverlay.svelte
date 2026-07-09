@@ -6,8 +6,8 @@
 
   const message = $derived.by(() => {
     switch (state) {
-      case 'unstable': return 'Connection unstable...';
-      case 'reconnecting': return 'Rejoining your seat...';
+      case 'unstable': return 'Connection unstable…';
+      case 'reconnecting': return 'Rejoining your seat…';
       case 'roomUnavailable': return 'Room unavailable. The host may have left.';
       case 'networkUnavailable': return 'Could not reconnect. Check your network.';
       default: return '';

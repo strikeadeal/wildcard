@@ -48,6 +48,53 @@ describe('bindIceHealth', () => {
     vi.useRealTimers();
   });
 
+  it('closes after the grace when starting disconnected and never recovering', () => {
+    vi.useFakeTimers();
+    const pc = fakePc('disconnected');
+    const statuses: ConnectionHealth[] = [];
+    let closed = 0;
+
+    bindIceHealth(pc, {
+      onHealth: (status) => {
+        statuses.push(status);
+        if (status === 'closed') closed++;
+      },
+      disconnectGraceMs: 4000
+    });
+
+    expect(statuses).toEqual(['unstable']);
+    expect(closed).toBe(0);
+
+    vi.advanceTimersByTime(4000);
+    expect(statuses).toEqual(['unstable', 'closed']);
+    expect(closed).toBe(1);
+    vi.useRealTimers();
+  });
+
+  it('returns to connected without closing when starting disconnected and recovering inside the grace window', () => {
+    vi.useFakeTimers();
+    const pc = fakePc('disconnected');
+    const statuses: ConnectionHealth[] = [];
+    let closed = 0;
+
+    bindIceHealth(pc, {
+      onHealth: (status) => {
+        statuses.push(status);
+        if (status === 'closed') closed++;
+      },
+      disconnectGraceMs: 4000
+    });
+
+    expect(statuses).toEqual(['unstable']);
+    vi.advanceTimersByTime(1000);
+    pc.setState('connected');
+    vi.advanceTimersByTime(4000);
+
+    expect(statuses).toEqual(['unstable', 'connected']);
+    expect(closed).toBe(0);
+    vi.useRealTimers();
+  });
+
   it('returns to connected without closing when ICE recovers inside the grace window', () => {
     vi.useFakeTimers();
     const pc = fakePc('connected');

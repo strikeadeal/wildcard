@@ -85,10 +85,10 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await expect(guest.locator('.swatches')).toBeVisible({ timeout: 5_000 });
 
   await dropGuestConnection(guest);
-  await expect(guest.getByRole('status')).toContainText('Connection unstable...', { timeout: 10_000 });
+  await expect(guest.getByRole('status')).toContainText('Connection unstable…', { timeout: 10_000 });
   await expect(guest.locator('.swatches')).toHaveCount(0, { timeout: 10_000 });
   await expect(host.getByText('away')).toBeVisible({ timeout: 20_000 });
-  await expect(guest.getByRole('status')).toContainText('Rejoining your seat...', { timeout: 20_000 });
+  await expect(guest.getByRole('status')).toContainText('Rejoining your seat…', { timeout: 20_000 });
   await expect(guest.locator('.hand .card')).toHaveCount(handSize);
 
   await expect(guest.locator('.hand .card')).toHaveCount(handSize, { timeout: 30_000 });

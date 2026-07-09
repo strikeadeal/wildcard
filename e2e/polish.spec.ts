@@ -147,9 +147,9 @@ test('connection overlay keeps the frozen table visible and ends in room unavail
 
   await host.close();
 
-  await expect(guest.getByRole('status')).toContainText('Connection unstable...', { timeout: 20_000 });
+  await expect(guest.getByRole('status')).toContainText('Connection unstable…', { timeout: 20_000 });
   await expect(guest.locator('.hand .card')).toHaveCount(7);
-  await expect(guest.getByRole('status')).toContainText('Rejoining your seat...', { timeout: 20_000 });
+  await expect(guest.getByRole('status')).toContainText('Rejoining your seat…', { timeout: 20_000 });
   await expect(guest.getByRole('status')).toContainText('Room unavailable. The host may have left.', { timeout: 30_000 });
   await expect(guest.getByRole('button', { name: 'Home' })).toBeVisible();
   await expect(guest.getByRole('button', { name: 'Retry' })).toHaveCount(0);

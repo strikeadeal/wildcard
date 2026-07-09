@@ -46,6 +46,16 @@ export function bindIceHealth(
 ): () => void {
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
+  const emitDisconnected = () => {
+    if (closed) return;
+    onHealth('unstable');
+    if (disconnectTimer !== undefined) return;
+    disconnectTimer = setTimeout(() => {
+      disconnectTimer = undefined;
+      const settled = pc.iceConnectionState;
+      if (settled !== 'connected' && settled !== 'completed') emitClosed();
+    }, disconnectGraceMs);
+  };
   const clearDisconnectTimer = () => {
     if (disconnectTimer !== undefined) {
       clearTimeout(disconnectTimer);
@@ -63,14 +73,7 @@ export function bindIceHealth(
     if (state === 'failed' || state === 'closed') {
       emitClosed();
     } else if (state === 'disconnected') {
-      onHealth('unstable');
-      if (disconnectTimer === undefined) {
-        disconnectTimer = setTimeout(() => {
-          disconnectTimer = undefined;
-          const settled = pc.iceConnectionState;
-          if (settled !== 'connected' && settled !== 'completed') emitClosed();
-        }, disconnectGraceMs);
-      }
+      emitDisconnected();
     } else if (state === 'connected' || state === 'completed') {
       clearDisconnectTimer();
       onHealth('connected');
@@ -78,7 +81,7 @@ export function bindIceHealth(
   });
   const initial = pc.iceConnectionState;
   if (initial === 'connected' || initial === 'completed') onHealth('connected');
-  else if (initial === 'disconnected') onHealth('unstable');
+  else if (initial === 'disconnected') emitDisconnected();
   else if (initial === 'failed' || initial === 'closed') emitClosed();
   return clearDisconnectTimer;
 }
