@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { PlayerView } from '../../src/engine/types';
 import { C } from '../engine/fixtures';
 import { session } from '../../src/ui/session.svelte';
@@ -32,9 +32,32 @@ function view(over: Partial<PlayerView> = {}): PlayerView {
   };
 }
 
+const storage = new Map<string, string>();
+
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem(key: string) {
+        return storage.has(key) ? storage.get(key)! : null;
+      },
+      setItem(key: string, value: string) {
+        storage.set(key, value);
+      },
+      removeItem(key: string) {
+        storage.delete(key);
+      },
+      clear() {
+        storage.clear();
+      }
+    }
+  });
+});
+
 describe('session notice handling', () => {
   afterEach(() => {
     session.leave();
+    storage.clear();
   });
 
   it('refreshes lastPlayFromSelf from view diffs even when notices are transported', () => {
@@ -78,5 +101,28 @@ describe('session notice handling', () => {
     (session as any).handleView(view({ discardTop: C('blue', '7') }));
     expect(session.recovery).toBe('idle');
     expect(session.selectionEpoch).toBe(2);
+  });
+
+  it('recomputes install eligibility when a captured prompt becomes returning-player eligible', () => {
+    const installEvent = {
+      preventDefault() {},
+      prompt: async () => {},
+      userChoice: Promise.resolve({ outcome: 'accepted' as const, platform: 'web' })
+    } as Event & {
+      prompt(): Promise<void>;
+      userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+    };
+
+    (session as any).view = view({ phase: 'play' });
+    session.captureInstallPrompt(installEvent);
+
+    expect((session as any).returningPlayer).toBe(false);
+    expect(session.canOfferInstall).toBe(false);
+
+    (session as any).handleView(view({ phase: 'roundEnd', roundWinner: 'p0' }));
+
+    expect(localStorage.getItem('wildcard:returning')).toBe('1');
+    expect((session as any).returningPlayer).toBe(true);
+    expect(session.canOfferInstall).toBe(true);
   });
 });

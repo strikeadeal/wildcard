@@ -75,9 +75,10 @@ class Session {
   online = $state(typeof navigator === 'undefined' ? true : navigator.onLine);
   installEvent = $state<BeforeInstallPromptEvent | null>(null);
   installDismissed = $state(readStorage(INSTALL_DISMISSED_KEY) === '1');
+  returningPlayer = $state(readStorage(RETURNING_KEY) === '1');
   currentNotice = $derived(this.noticeQueue[0] ?? null);
   canOfferInstall = $derived(
-    !!this.installEvent && !this.installDismissed && readStorage(RETURNING_KEY) === '1'
+    !!this.installEvent && !this.installDismissed && this.returningPlayer
   );
 
   gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
@@ -133,6 +134,11 @@ class Session {
     writeStorage(INSTALL_DISMISSED_KEY, '1');
   }
 
+  private markReturningPlayer(): void {
+    this.returningPlayer = true;
+    writeStorage(RETURNING_KEY, '1');
+  }
+
   private showToast(message: string): void {
     this.toast = message;
     clearTimeout(this.toastTimer);
@@ -161,7 +167,7 @@ class Session {
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
-      writeStorage(RETURNING_KEY, '1');
+      this.markReturningPlayer();
     }
     const change = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = change.fromSelf;
