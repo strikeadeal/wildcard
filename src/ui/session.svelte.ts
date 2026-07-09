@@ -13,9 +13,24 @@ import type { PublicNotice } from './public-notices';
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 export type Operation = 'create' | 'join' | 'rejoin' | null;
 type RejoinOutcome = 'joined' | 'roomMissing' | 'networkFailed';
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
 
 const NAME_KEY = 'wildcard:name';
+const RETURNING_KEY = 'wildcard:returning';
+const INSTALL_DISMISSED_KEY = 'wildcard:install-dismissed';
 const tokenKey = (code: string) => 'wildcard:token:' + code;
+
+function readStorage(key: string): string | null {
+  return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+}
+
+function writeStorage(key: string, value: string): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(key, value);
+}
 
 const configuredSeed = Number(import.meta.env.VITE_GAME_SEED);
 const e2eSeed = Number.isFinite(configuredSeed) ? () => configuredSeed : undefined;
@@ -57,7 +72,13 @@ class Session {
   prefillCode = $state('');
   recovery = $state<RecoveryState>('idle');
   selectionEpoch = $state(0);
+  online = $state(typeof navigator === 'undefined' ? true : navigator.onLine);
+  installEvent = $state<BeforeInstallPromptEvent | null>(null);
+  installDismissed = $state(readStorage(INSTALL_DISMISSED_KEY) === '1');
   currentNotice = $derived(this.noticeQueue[0] ?? null);
+  canOfferInstall = $derived(
+    !!this.installEvent && !this.installDismissed && readStorage(RETURNING_KEY) === '1'
+  );
 
   gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
 
@@ -87,7 +108,29 @@ class Session {
   }
 
   savedName(): string {
-    return localStorage.getItem(NAME_KEY) ?? '';
+    return readStorage(NAME_KEY) ?? '';
+  }
+
+  setOnline(value: boolean): void {
+    this.online = value;
+  }
+
+  captureInstallPrompt(event: Event): void {
+    event.preventDefault();
+    this.installEvent = event as BeforeInstallPromptEvent;
+  }
+
+  async installApp(): Promise<void> {
+    const event = this.installEvent;
+    if (!event) return;
+    await event.prompt();
+    await event.userChoice;
+    this.installEvent = null;
+  }
+
+  dismissInstallPrompt(): void {
+    this.installDismissed = true;
+    writeStorage(INSTALL_DISMISSED_KEY, '1');
   }
 
   private showToast(message: string): void {
@@ -117,6 +160,9 @@ class Session {
    * deriving banner and animation changes by diffing consecutive views.
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
+    if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
+      writeStorage(RETURNING_KEY, '1');
+    }
     const change = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = change.fromSelf;
     this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
@@ -188,7 +234,7 @@ class Session {
     if (!this.lastJoin) return 'networkFailed';
     const epoch = this.epoch;
     const { code, name } = this.lastJoin;
-    const token = localStorage.getItem(tokenKey(code));
+    const token = readStorage(tokenKey(code));
     const raw = peerJoin(code);
     try {
       const { conn, destroy } = await withTimeout(raw);
@@ -226,12 +272,14 @@ class Session {
             this.destroyPeer = destroy;
             this.guest = candidate;
             if (nextPlayerId) this.playerId = nextPlayerId;
-            if (nextToken) localStorage.setItem(tokenKey(code), nextToken);
+            if (nextToken) writeStorage(tokenKey(code), nextToken);
             this.handleView(view, notices);
             finish('joined');
           },
           onRejected: (reason) => {
-            if (reason === 'badToken') localStorage.removeItem(tokenKey(code));
+            if (reason === 'badToken' && typeof localStorage !== 'undefined') {
+              localStorage.removeItem(tokenKey(code));
+            }
             finish('networkFailed');
           },
           onError: () => {},
@@ -262,7 +310,7 @@ class Session {
   async createRoom(name: string): Promise<void> {
     this.lastJoin = null;
     this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
-    localStorage.setItem(NAME_KEY, name);
+    writeStorage(NAME_KEY, name);
     this.operation = 'create';
     this.screen = 'connecting';
     this.isHost = true;
@@ -318,7 +366,7 @@ class Session {
       this.showToast('Room codes are 5 letters/numbers, like KP4XQ');
       return;
     }
-    localStorage.setItem(NAME_KEY, name);
+    writeStorage(NAME_KEY, name);
     this.lastJoin = { code, name };
     this.screen = 'connecting';
     this.isHost = false;
@@ -332,10 +380,10 @@ class Session {
       }
       this.destroyPeer = destroy;
       this.roomCode = code;
-      this.guest = new GuestSession(conn, name.trim() || 'Player', localStorage.getItem(tokenKey(code)), {
+      this.guest = new GuestSession(conn, name.trim() || 'Player', readStorage(tokenKey(code)), {
         onWelcome: (playerId, token) => {
           this.playerId = playerId;
-          localStorage.setItem(tokenKey(code), token);
+          writeStorage(tokenKey(code), token);
         },
         onLobby: (lobby) => {
           this.operation = null;
@@ -344,7 +392,9 @@ class Session {
         },
         onView: (view, notices) => this.handleView(view, notices),
         onRejected: (reason) => {
-          if (reason === 'badToken') localStorage.removeItem(tokenKey(code));
+          if (reason === 'badToken' && typeof localStorage !== 'undefined') {
+            localStorage.removeItem(tokenKey(code));
+          }
           this.fail(reason);
         },
         onError: (message) => this.showToast(message),

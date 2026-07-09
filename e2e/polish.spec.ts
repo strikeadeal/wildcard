@@ -158,3 +158,16 @@ test('connection overlay keeps the frozen table visible and ends in room unavail
   await hostCtx.close();
   await guestCtx.close();
 });
+
+test('home explains offline multiplayer without hiding the shell', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByText('You’re offline')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'WILDCARD' })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+});
+
+test('install prompt is absent when the browser does not offer installation', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Install WILDCARD' })).toHaveCount(0);
+});

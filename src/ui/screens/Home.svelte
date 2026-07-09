@@ -1,6 +1,7 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import CardFace from '../components/CardFace.svelte';
+  import InstallPrompt from '../components/InstallPrompt.svelte';
   import type { Card } from '../../engine/types';
   import { validateCode } from '../../net/codes';
 
@@ -47,6 +48,15 @@
     <h1>WILDCARD</h1>
     <p class="tag">The classic card game — with your friends, right in the browser.</p>
   </header>
+
+  {#if !session.online}
+    <section class="network-note" role="status" aria-live="polite">
+      <p><strong>You’re offline.</strong> The app is available, but creating or joining a room needs a network connection.</p>
+      <p class="detail">Live play still depends on PeerJS signalling plus a direct or relay WebRTC path once you reconnect.</p>
+    </section>
+  {/if}
+
+  <InstallPrompt />
 
   <label>
     Your name
@@ -98,6 +108,21 @@
     justify-content: center;
   }
   .hero { text-align: center; margin-bottom: 6px; }
+  .network-note {
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--brass) 36%, var(--line));
+    background: rgb(0 0 0 / 0.18);
+  }
+  .network-note p {
+    margin: 0;
+    line-height: 1.45;
+  }
+  .network-note .detail {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
   .fan {
     height: 128px;
     display: flex;
