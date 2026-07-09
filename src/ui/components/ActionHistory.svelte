@@ -2,13 +2,16 @@
   import { session } from '../session.svelte';
   import { formatNotice } from '../public-notices';
 
-  const items = $derived(session.noticeHistory.slice().reverse());
+  // Oldest-first so the newest action reads at the bottom, like a log.
+  const items = $derived(session.noticeHistory);
 </script>
 
 {#if items.length}
-  <ol class="action-history" aria-label="Recent actions">
-    {#each items as notice (notice.id)}
-      <li>{formatNotice(notice, session.view?.players ?? [], session.view?.you.id ?? '')}</li>
+  <ol class="action-history" aria-label="Recent actions" aria-live="polite">
+    {#each items as notice, i (notice.id)}
+      <li style="opacity:{items.length > 1 ? (0.45 + 0.55 * (i / (items.length - 1))).toFixed(2) : 1}">
+        {formatNotice(notice, session.view?.players ?? [], session.view?.you.id ?? '')}
+      </li>
     {/each}
   </ol>
 {/if}
