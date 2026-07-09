@@ -132,3 +132,29 @@ test('queued notices keep stacked penalties visible in recent actions', async ({
   await expect(history.locator('li')).toHaveCount(3);
   await expect(stackedText).toBeVisible();
 });
+
+test('connection overlay keeps the frozen table visible and ends in room unavailable when the host leaves', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guest, code, 'Gil');
+  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await host.getByRole('button', { name: 'Start game' }).click();
+  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+
+  await host.close();
+
+  await expect(guest.getByRole('status')).toContainText('Connection unstable...', { timeout: 20_000 });
+  await expect(guest.locator('.hand .card')).toHaveCount(7);
+  await expect(guest.getByRole('status')).toContainText('Rejoining your seat...', { timeout: 20_000 });
+  await expect(guest.getByRole('status')).toContainText('Room unavailable. The host may have left.', { timeout: 30_000 });
+  await expect(guest.getByRole('button', { name: 'Home' })).toBeVisible();
+  await expect(guest.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+  await expect(guest.locator('.hand .card')).toHaveCount(7);
+
+  await hostCtx.close();
+  await guestCtx.close();
+});

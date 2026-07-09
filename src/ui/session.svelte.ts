@@ -6,11 +6,13 @@ import { HostSession } from '../net/host';
 import { hostRoom, joinRoom as peerJoin } from '../net/peer';
 import type { LobbyInfo } from '../net/protocol';
 import type { FatalReason } from './fatal-state';
+import { nextRecoveryState, type RecoveryState } from './connection-state';
 import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
 import type { PublicNotice } from './public-notices';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 export type Operation = 'create' | 'join' | 'rejoin' | null;
+type RejoinOutcome = 'joined' | 'roomMissing' | 'networkFailed';
 
 const NAME_KEY = 'wildcard:name';
 const tokenKey = (code: string) => 'wildcard:token:' + code;
@@ -53,6 +55,7 @@ class Session {
   isHost = $state(false);
   playerId = $state<string | null>(null);
   prefillCode = $state('');
+  recovery = $state<RecoveryState>('idle');
   currentNotice = $derived(this.noticeQueue[0] ?? null);
 
   gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
@@ -125,8 +128,114 @@ class Session {
       if (change.event) this.fxEvent = { ...change.event, nonce: ++this.fxNonce };
     }
     this.view = view;
+    if (this.recovery !== 'idle') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
+    }
     this.operation = null;
     this.screen = 'game';
+  }
+
+  private handleGuestStatus(status: 'connecting' | 'connected' | 'unstable' | 'closed'): void {
+    if (this.isHost || this.screen !== 'game' || !this.view) return;
+    if (status === 'unstable') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'transportUnstable' });
+    } else if (status === 'connected' && this.recovery === 'unstable') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
+    }
+  }
+
+  private handleGuestClosed(): void {
+    if (this.screen === 'fatal' || this.screen === 'home') return;
+    if (this.screen !== 'game' || !this.view || !this.lastJoin) {
+      this.fail('roomUnavailable');
+      return;
+    }
+    if (this.recovery === 'reconnecting') return;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
+    const destroyPeer = this.destroyPeer;
+    this.destroyPeer = null;
+    destroyPeer?.();
+    this.guest = null;
+    void this.recoverGuest();
+  }
+
+  private async recoverGuest(): Promise<void> {
+    if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+    for (const delay of [0, 1500]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+      const outcome = await this.tryRejoinOnce();
+      if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+      if (outcome === 'joined') return;
+      if (outcome === 'roomMissing') {
+        this.recovery = nextRecoveryState(this.recovery, { type: 'roomMissing' });
+        return;
+      }
+    }
+    if (this.recovery === 'reconnecting') {
+      this.recovery = nextRecoveryState(this.recovery, { type: 'networkFailed' });
+    }
+  }
+
+  private async tryRejoinOnce(): Promise<RejoinOutcome> {
+    if (!this.lastJoin) return 'networkFailed';
+    const epoch = this.epoch;
+    const { code, name } = this.lastJoin;
+    const token = localStorage.getItem(tokenKey(code));
+    const raw = peerJoin(code);
+    try {
+      const { conn, destroy } = await withTimeout(raw);
+      if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
+        conn.close();
+        destroy();
+        return 'networkFailed';
+      }
+      return await new Promise<RejoinOutcome>((resolve) => {
+        let settled = false;
+        let nextPlayerId: string | null = null;
+        let nextToken: string | null = token;
+        let candidate: GuestSession | null = null;
+        const dispose = () => {
+          candidate?.close();
+          destroy();
+        };
+        const finish = (outcome: RejoinOutcome) => {
+          if (settled) return;
+          settled = true;
+          if (outcome !== 'joined') dispose();
+          resolve(outcome);
+        };
+        candidate = new GuestSession(conn, name.trim() || 'Player', token, {
+          onWelcome: (playerId, freshToken) => {
+            nextPlayerId = playerId;
+            nextToken = freshToken;
+          },
+          onLobby: () => {},
+          onView: (view, notices) => {
+            if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
+              finish('networkFailed');
+              return;
+            }
+            this.destroyPeer = destroy;
+            this.guest = candidate;
+            if (nextPlayerId) this.playerId = nextPlayerId;
+            if (nextToken) localStorage.setItem(tokenKey(code), nextToken);
+            this.handleView(view, notices);
+            finish('joined');
+          },
+          onRejected: (reason) => {
+            if (reason === 'badToken') localStorage.removeItem(tokenKey(code));
+            finish('networkFailed');
+          },
+          onError: () => {},
+          onClosed: () => finish('networkFailed'),
+          onConnectionStatus: () => {}
+        });
+      });
+    } catch (e) {
+      raw.then((r) => r.destroy()).catch(() => {});
+      return (e as Error).message === 'not-found' ? 'roomMissing' : 'networkFailed';
+    }
   }
 
   dismissCurrentNotice(): void {
@@ -138,12 +247,14 @@ class Session {
   private fail(reason: FatalReason): void {
     this.lastFailWasCreate = this.operation === 'create';
     this.operation = null;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.fatal = { reason, code: this.roomCode ?? this.lastJoin?.code ?? null };
     this.screen = 'fatal';
   }
 
   async createRoom(name: string): Promise<void> {
     this.lastJoin = null;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     localStorage.setItem(NAME_KEY, name);
     this.operation = 'create';
     this.screen = 'connecting';
@@ -168,7 +279,6 @@ class Session {
       try {
         const room = await withTimeout(raw);
         if (this.epoch !== epoch) {
-          // User left while connecting — do not resurrect the session.
           room.destroy();
           return;
         }
@@ -179,7 +289,6 @@ class Session {
         this.screen = 'lobby';
         return;
       } catch (e) {
-        // If the timeout lost the race but the peer opens later, reap it.
         raw.then((r) => r.destroy()).catch(() => {});
         if (this.epoch !== epoch) return;
         const message = (e as Error).message;
@@ -194,6 +303,7 @@ class Session {
   }
 
   async joinRoom(codeInput: string, name: string, isRejoin = false): Promise<void> {
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.operation = isRejoin ? 'rejoin' : 'join';
     const code = normalizeCode(codeInput);
     if (!code) {
@@ -210,7 +320,6 @@ class Session {
     try {
       const { conn, destroy } = await withTimeout(raw);
       if (this.epoch !== epoch) {
-        // User left while connecting — do not resurrect the session.
         destroy();
         return;
       }
@@ -232,13 +341,10 @@ class Session {
           this.fail(reason);
         },
         onError: (message) => this.showToast(message),
-        onClosed: () => {
-          if (this.screen === 'fatal' || this.screen === 'home') return;
-          this.fail('roomUnavailable');
-        }
+        onClosed: () => this.handleGuestClosed(),
+        onConnectionStatus: (status) => this.handleGuestStatus(status)
       });
     } catch (e) {
-      // If the timeout lost the race but the peer opens later, reap it.
       raw.then((r) => r.destroy()).catch(() => {});
       if (this.epoch !== epoch) return;
       const message = (e as Error).message;
@@ -252,6 +358,12 @@ class Session {
       return;
     }
     if (this.lastJoin) void this.joinRoom(this.lastJoin.code, this.lastJoin.name, true);
+  }
+
+  retryRecovery(): void {
+    if (this.recovery !== 'networkUnavailable') return;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
+    void this.recoverGuest();
   }
 
   clearFatalToHome(): void {
@@ -305,6 +417,7 @@ class Session {
     clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;
+    this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.lastFailWasCreate = false;
     this.isHost = false;
     this.playerId = null;

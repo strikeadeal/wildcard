@@ -9,13 +9,17 @@
   import Announce from '../components/Announce.svelte';
   import ActionHistory from '../components/ActionHistory.svelte';
   import AnimationLayer from '../components/AnimationLayer.svelte';
+  import ReconnectOverlay from '../components/ReconnectOverlay.svelte';
   import type { Card, Color, OpponentView } from '../../engine/types';
   import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
   import { cubicOut } from 'svelte/easing';
   import { deriveActionPrompt } from '../action-prompt';
   import { noticeToGameEvent } from '../public-notices';
+  import type { RecoveryState } from '../connection-state';
 
   const view = $derived(session.view);
+  const recovery = $derived(session.recovery);
+  const recovering = $derived(recovery !== 'idle');
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
   const prompt = $derived(view ? deriveActionPrompt(view) : null);
   const others = $derived.by(() => {
@@ -77,7 +81,7 @@
   let pendingWild = $state<number | null>(null);
 
   function cardClicked(card: Card) {
-    if (!view || !view.playableCardIds.includes(card.id)) return;
+    if (recovering || !view || !view.playableCardIds.includes(card.id)) return;
     if (card.color === null) {
       pendingWild = card.id;
       return;
@@ -86,11 +90,13 @@
   }
 
   function play(cardId: number, chosenColor?: Color) {
+    if (recovering) return;
     if (myTurn) session.sendAction({ type: 'playCard', cardId, chosenColor });
     else session.sendAction({ type: 'jumpIn', cardId, chosenColor });
   }
 
   function pickColor(color: Color) {
+    if (recovering) return;
     if (pendingWild !== null) {
       play(pendingWild, color);
       pendingWild = null;
@@ -100,6 +106,7 @@
   }
 
   function removePlayer(player: OpponentView) {
+    if (recovering) return;
     if (confirm(`${player.name} will be removed from this game.`)) {
       session.removeSeat(player.id);
     }
@@ -121,7 +128,9 @@
           onremove={session.isHost && !p.connected
             ? () => removePlayer(p)
             : undefined}
-          oncatch={() => session.sendAction({ type: 'catchUno', targetId: p.id })}
+          oncatch={() => {
+            if (!recovering) session.sendAction({ type: 'catchUno', targetId: p.id });
+          }}
         />
       {/each}
     </div>
@@ -134,7 +143,12 @@
       <div class="piles">
         <div class="drawpile">
           <div class="stack" use:anchor={'deck'}>
-            <CardFace facedown onclick={view.canDraw ? () => session.sendAction({ type: 'drawCard' }) : undefined} />
+            <CardFace
+              facedown
+              onclick={!recovering && view.canDraw
+                ? () => session.sendAction({ type: 'drawCard' })
+                : undefined}
+            />
           </div>
           <small>{view.deckCount} in deck</small>
           {#key view.pendingDraw}
@@ -171,15 +185,15 @@
       <p class="status {prompt?.tone}" aria-live="polite">{prompt?.text}</p>
     </div>
 
-    <div class="actions">
+      <div class="actions">
       {#if view.canChallenge}
-        <button onclick={() => session.sendAction({ type: 'challengeWildFour' })}>Challenge the +4</button>
+        <button disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'challengeWildFour' }) : undefined}>Challenge the +4</button>
       {/if}
       {#if view.canPass}
-        <button class="ghost" onclick={() => session.sendAction({ type: 'passTurn' })}>Keep it</button>
+        <button class="ghost" disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'passTurn' }) : undefined}>Keep it</button>
       {/if}
       {#if view.canCallUno}
-        <button class="lastcard" onclick={() => session.sendAction({ type: 'callUno' })}>Last card!</button>
+        <button class="lastcard" disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'callUno' }) : undefined}>Last card!</button>
       {/if}
     </div>
 
@@ -193,17 +207,23 @@
           <CardFace
             {card}
             playable={view.playableCardIds.includes(card.id)}
-            onclick={view.playableCardIds.includes(card.id) ? () => cardClicked(card) : undefined}
+            onclick={!recovering && view.playableCardIds.includes(card.id)
+              ? () => cardClicked(card)
+              : undefined}
           />
         </div>
       {/each}
     </div>
   </div>
 
-  {#if pendingWild !== null || view.mustChooseColor}
+  {#if recovery !== 'idle'}
+    <ReconnectOverlay state={recovery as RecoveryState} />
+  {/if}
+
+  {#if !recovering && (pendingWild !== null || view.mustChooseColor)}
     <ColorPicker onpick={pickColor} />
   {/if}
-  {#if view.mustChooseSwapTarget}
+  {#if !recovering && view.mustChooseSwapTarget}
     <SwapPicker
       players={others}
       onpick={(id) => session.sendAction({ type: 'chooseSwapTarget', targetId: id })}

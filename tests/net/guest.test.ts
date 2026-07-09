@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GuestSession, type GuestEvents } from '../../src/net/guest';
 import { HostSession } from '../../src/net/host';
-import { createLoopbackPair } from '../../src/net/transport';
+import { createLoopbackPair, type ConnectionHealth } from '../../src/net/transport';
 import { DEFAULT_RULES } from '../../src/engine/types';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -13,7 +13,7 @@ const silentHost = () =>
 
 const guestEvents = (): GuestEvents => ({
   onWelcome: vi.fn(), onLobby: vi.fn(), onView: vi.fn(),
-  onRejected: vi.fn(), onError: vi.fn(), onClosed: vi.fn()
+  onRejected: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onConnectionStatus: vi.fn()
 } as any);
 
 describe('GuestSession', () => {
@@ -104,5 +104,14 @@ describe('GuestSession', () => {
     hostEnd2.close();
     await flush();
     expect(events2.onClosed).toHaveBeenCalled();
+  });
+
+  it('forwards connection health updates', async () => {
+    const [guestEnd] = createLoopbackPair();
+    const events = guestEvents();
+    new GuestSession(guestEnd, 'Ada', null, events);
+    await flush();
+
+    expect(events.onConnectionStatus).toHaveBeenCalledWith('connected' satisfies ConnectionHealth);
   });
 });

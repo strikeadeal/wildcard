@@ -1,7 +1,7 @@
 import type { Action } from '../engine/types';
 import type { PublicNotice } from '../ui/public-notices';
 import { PROTOCOL_VERSION, type ServerMsg } from './protocol';
-import type { Connection } from './transport';
+import type { Connection, ConnectionHealth } from './transport';
 
 export interface GuestEvents {
   onWelcome(playerId: string, token: string): void;
@@ -10,6 +10,7 @@ export interface GuestEvents {
   onRejected(reason: 'version' | 'full' | 'started' | 'badToken'): void;
   onError(message: string): void;
   onClosed(): void;
+  onConnectionStatus(status: ConnectionHealth): void;
 }
 
 export class GuestSession {
@@ -44,6 +45,7 @@ export class GuestSession {
       }
     });
     conn.onClose(() => events.onClosed());
+    conn.onStatus((status) => events.onConnectionStatus(status));
     conn.send({ v: PROTOCOL_VERSION, type: 'hello', name, token });
   }
 

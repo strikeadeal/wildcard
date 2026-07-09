@@ -1,7 +1,7 @@
 import Peer, { type DataConnection, type PeerOptions } from 'peerjs';
 import { codeToPeerId } from './codes';
 import { buildIceConfig, type TurnEnvironment } from './ice';
-import type { Connection } from './transport';
+import type { Connection, ConnectionHealth } from './transport';
 
 /**
  * E2E and local dev can point at a local PeerServer via Vite env:
@@ -37,7 +37,9 @@ const ICE_DISCONNECT_GRACE_MS = 4_000;
 function wrap(dc: DataConnection): Connection {
   let onMsg: (msg: unknown) => void = () => {};
   let onCls: () => void = () => {};
+  let onStat: (status: ConnectionHealth) => void = () => {};
   let notified = false;
+  let status: ConnectionHealth = 'connecting';
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   const clearDisconnectTimer = () => {
     if (disconnectTimer !== undefined) {
@@ -45,12 +47,17 @@ function wrap(dc: DataConnection): Connection {
       disconnectTimer = undefined;
     }
   };
+  const setStatus = (next: ConnectionHealth) => {
+    status = next;
+    onStat(next);
+  };
   // PeerJS may emit 'error' and 'close' for the same failure; the Connection
   // contract is onClose at most once.
   const notifyClose = () => {
     if (notified) return;
     notified = true;
     clearDisconnectTimer();
+    setStatus('closed');
     onCls();
   };
   let iceWatchAttached = false;
@@ -65,6 +72,7 @@ function wrap(dc: DataConnection): Connection {
         clearDisconnectTimer();
         notifyClose();
       } else if (state === 'disconnected') {
+        setStatus('unstable');
         if (disconnectTimer === undefined) {
           disconnectTimer = setTimeout(() => {
             disconnectTimer = undefined;
@@ -74,8 +82,13 @@ function wrap(dc: DataConnection): Connection {
         }
       } else if (state === 'connected' || state === 'completed') {
         clearDisconnectTimer();
+        setStatus('connected');
       }
     });
+    const initial = pc.iceConnectionState;
+    if (initial === 'connected' || initial === 'completed') setStatus('connected');
+    else if (initial === 'disconnected') setStatus('unstable');
+    else if (initial === 'failed' || initial === 'closed') setStatus('closed');
   };
   dc.on('data', (data) => onMsg(data));
   dc.on('close', notifyClose);
@@ -89,6 +102,10 @@ function wrap(dc: DataConnection): Connection {
     send: (msg) => dc.send(msg),
     onMessage: (cb) => { onMsg = cb; },
     onClose: (cb) => { onCls = cb; },
+    onStatus: (cb) => {
+      onStat = cb;
+      cb(status);
+    },
     close: () => dc.close()
   };
 }
