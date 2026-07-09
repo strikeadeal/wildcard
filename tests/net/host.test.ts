@@ -155,6 +155,7 @@ describe('HostSession', () => {
     a.conn.close();
     await flush();
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(false);
+    expect(host.lastNotices).toEqual([{ id: 1, kind: 'disconnect', actorId: 'p1' }]);
 
     const back = new Wire(host);
     back.hello('Ada', token);
@@ -162,6 +163,7 @@ describe('HostSession', () => {
     expect(back.last('welcome')?.playerId).toBe('p1');
     expect(back.last('view')?.view.you.hand).toHaveLength(7);
     expect(events.views[events.views.length - 1]!.players[1]!.connected).toBe(true);
+    expect(host.lastNotices).toEqual([{ id: 2, kind: 'reconnect', actorId: 'p1' }]);
   });
 
   it('token rejoin supersedes a still-open connection without dropping the seat', async () => {
@@ -221,20 +223,31 @@ describe('HostSession', () => {
 
   it('skipTurn force-ends an absent player turn; removeSeat deals them out', async () => {
     const a = new Wire(host);
+    const b = new Wire(host);
+    a.hello('Ada');
+    b.hello('Bob');
+    await flush();
+    host.state = fixedPendingSkipState();
+    host.skipTurn('p1');
+    expect(host.state!.players[host.state!.turn]!.id).toBe('p2');
+    expect(host.lastNotices).toEqual([{ id: 1, kind: 'draw', actorId: 'p1', count: 2 }]);
+
+    host.removeSeat('p1');
+    await flush();
+    expect(host.state!.players.map((p) => p.id)).toEqual(['p0', 'p2']);
+    expect(host.lastNotices).toEqual([]);
+  });
+
+  it('stores a round-win notice when host removal ends the round', async () => {
+    const a = new Wire(host);
     a.hello('Ada');
     await flush();
     host.startGame();
     await flush();
-    while (host.state!.players[host.state!.turn]!.id !== 'p1') {
-      host.skipTurn(host.state!.players[host.state!.turn]!.id);
-    }
-    host.skipTurn('p1');
-    expect(host.state!.players[host.state!.turn]!.id).toBe('p0');
-
     host.removeSeat('p1');
     await flush();
-    expect(host.state!.players.map((p) => p.id)).toEqual(['p0']);
     expect(host.state!.phase).toBe('roundEnd');
+    expect(host.lastNotices).toEqual([{ id: 1, kind: 'roundWin', actorId: 'p0' }]);
   });
 
   it('uses the injected seed when starting a game', async () => {
@@ -257,5 +270,13 @@ function fixedTwoPlayerState(): GameState {
     [[C('blue', '3', 9000)], [C('red', 'draw2', 9001), C('yellow', '9', 9004)]],
     C('red', '5', 9003),
     { turn: 1 }
+  );
+}
+
+function fixedPendingSkipState(): GameState {
+  return fixedState(
+    [[C('green', '7', 9100)], [C('blue', '3', 9101)], [C('yellow', '5', 9102)]],
+    C('red', 'draw2', 9103),
+    { pendingDraw: 2, pendingType: 'draw2', turn: 1 }
   );
 }

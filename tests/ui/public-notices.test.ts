@@ -34,6 +34,58 @@ describe('public notices', () => {
     expect(JSON.stringify(notices)).not.toContain('"hand"');
   });
 
+  it('keeps final-card +2 notice totals even after round-end resolution clears pendingDraw', () => {
+    const card = C('red', 'draw2', 103);
+    const before = fixedState([[card], [C('blue', '3')]], C('red', '5'));
+    const after = ok(apply(before, 'p0', { type: 'playCard', cardId: card.id }));
+    expect(after.phase).toBe('roundEnd');
+    expect(after.pendingDraw).toBe(0);
+    expect(deriveActionNotices(before, after, 'p0', { type: 'playCard', cardId: card.id }, 12)).toEqual([
+      { id: 12, kind: 'play', actorId: 'p0', card: { color: 'red', value: 'draw2' } },
+      { id: 13, kind: 'penalty', actorId: 'p0', targetId: 'p1', count: 2, pendingDraw: 2, stacked: false },
+      { id: 14, kind: 'roundWin', actorId: 'p0' }
+    ]);
+  });
+
+  it('keeps final-card wild4 notice totals even after round-end resolution clears pendingDraw', () => {
+    const card = C(null, 'wild4', 104);
+    const before = fixedState([[card], [C('blue', '3')]], C('red', '5'));
+    const after = ok(apply(before, 'p0', { type: 'playCard', cardId: card.id, chosenColor: 'green' }));
+    expect(after.phase).toBe('roundEnd');
+    expect(after.pendingDraw).toBe(0);
+    expect(deriveActionNotices(
+      before,
+      after,
+      'p0',
+      { type: 'playCard', cardId: card.id, chosenColor: 'green' },
+      15
+    )).toEqual([
+      { id: 15, kind: 'play', actorId: 'p0', card: { color: null, value: 'wild4' } },
+      { id: 16, kind: 'penalty', actorId: 'p0', targetId: 'p1', count: 4, pendingDraw: 4, stacked: false },
+      { id: 17, kind: 'color', actorId: 'p0', color: 'green' },
+      { id: 18, kind: 'roundWin', actorId: 'p0' }
+    ]);
+  });
+
+  it('keeps stacked final penalty totals without going negative', () => {
+    const first = C('red', 'draw2', 105);
+    const final = C('blue', 'draw2', 106);
+    const start = fixedState(
+      [[first, C('red', '1', 107)], [final], [C('yellow', '3', 108)]],
+      C('red', '5'),
+      { config: { ...DEFAULT_RULES, stacking: true } }
+    );
+    const before = ok(apply(start, 'p0', { type: 'playCard', cardId: first.id }));
+    const after = ok(apply(before, 'p1', { type: 'playCard', cardId: final.id }));
+    expect(after.phase).toBe('roundEnd');
+    expect(after.pendingDraw).toBe(0);
+    expect(deriveActionNotices(before, after, 'p1', { type: 'playCard', cardId: final.id }, 19)).toEqual([
+      { id: 19, kind: 'play', actorId: 'p1', card: { color: 'blue', value: 'draw2' } },
+      { id: 20, kind: 'penalty', actorId: 'p1', targetId: 'p2', count: 2, pendingDraw: 4, stacked: true },
+      { id: 21, kind: 'roundWin', actorId: 'p1' }
+    ]);
+  });
+
   it('reports draw count but never drawn identities', () => {
     const before = fixedState(
       [[C('red', '5')], [C('blue', '3')]], C(null, 'wild4'),

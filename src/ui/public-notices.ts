@@ -22,6 +22,10 @@ function cardCount(state: GameState, id: string): number {
   return state.players.find((p) => p.id === id)?.hand.length ?? 0;
 }
 
+function penaltyDelta(card: { value: CardValue }): number {
+  return card.value === 'wild4' ? 4 : 2;
+}
+
 export function deriveActionNotices(
   before: GameState,
   after: GameState,
@@ -45,12 +49,13 @@ export function deriveActionNotices(
       });
       const targetId = after.players[after.turn]?.id;
       if (top.value === 'draw2' || top.value === 'wild4') {
+        const count = penaltyDelta(top);
         add({
           kind: 'penalty',
           actorId,
           targetId,
-          count: after.pendingDraw - before.pendingDraw,
-          pendingDraw: after.pendingDraw,
+          count,
+          pendingDraw: before.pendingDraw + count,
           stacked: before.pendingDraw > 0
         });
       } else if (top.value === 'skip') {
