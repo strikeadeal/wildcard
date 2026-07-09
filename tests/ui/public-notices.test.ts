@@ -4,7 +4,8 @@ import { DEFAULT_RULES, type GameState, type PlayerState } from '../../src/engin
 import {
   deriveActionNotices,
   deriveConnectionNotice,
-  formatNotice
+  formatNotice,
+  noticeToGameEvent
 } from '../../src/ui/public-notices';
 import { C, fixedState, ok } from '../engine/fixtures';
 
@@ -230,11 +231,27 @@ describe('public notices', () => {
       { id: 131, kind: 'penalty', actorId: 'p0', targetId: 'p1', pendingDraw: 4 },
       names(state),
       'p0'
-    )).toBe('Penalty is now +4 for Bob');
+    )).toBe('You played a draw card · Bob now faces 4');
     expect(formatNotice(
       { id: 132, kind: 'roundWin', actorId: 'p0' },
       names(state),
       'p0'
     )).toBe('You won the round');
+  });
+
+  it('formats a stacked penalty without claiming it was drawn', () => {
+    const players = [{ id: 'p0', name: 'Ada' }, { id: 'p1', name: 'Bob' }];
+    expect(formatNotice(
+      { id: 2, kind: 'penalty', actorId: 'p0', targetId: 'p1', pendingDraw: 4, stacked: true },
+      players,
+      'p0'
+    )).toBe('You stacked the penalty · Bob now faces 4');
+  });
+
+  it('maps a three-card opponent draw to one draw event carrying n=3', () => {
+    expect(noticeToGameEvent(
+      { id: 4, kind: 'draw', actorId: 'p1', count: 3 },
+      'p0'
+    )).toEqual({ kind: 'draw', playerId: 'p1', n: 3, toSelf: false });
   });
 });

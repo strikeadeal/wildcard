@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createRoom, joinRoom } from './helpers';
+import { clickIfActionable, actIfPossible, createRoom, joinRoom } from './helpers';
 
 test('host actions remain visible in a two-player mobile lobby', async ({ browser }) => {
   const host = await browser.newPage();
@@ -89,4 +89,46 @@ test('table shows actionable prompts, scores, and away-player controls safely', 
   await awaySeat.getByRole('button', { name: 'Remove' }).click();
   await dialog;
   await expect(host.locator('.seat').filter({ hasText: 'Gil' })).toHaveCount(0);
+});
+
+test('queued notices keep stacked penalties visible in recent actions', async ({ browser }) => {
+  const host = await browser.newPage();
+  const guestA = await browser.newPage();
+  const guestB = await browser.newPage();
+
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guestA, code, 'Gil');
+  await joinRoom(guestB, code, 'Ira');
+  await expect(host.getByText('Gil')).toBeVisible();
+  await expect(host.getByText('Ira')).toBeVisible();
+  await host.getByLabel('Stacking').check();
+  await host.getByRole('button', { name: 'Start game' }).click();
+
+  const history = host.getByLabel('Recent actions');
+  const stackedText = host.getByText(/faces 4|faces 6|faces 8/);
+  const pages = [host, guestA, guestB];
+  let sawStack = false;
+  const actThroughRound = async (page: typeof host) => {
+    const nextRound = page.getByRole('button', { name: 'Next round' });
+    if (await clickIfActionable(nextRound)) return true;
+    const challenge = page.getByRole('button', { name: 'Challenge the +4' });
+    if (await clickIfActionable(challenge)) return true;
+    const lastCard = page.getByRole('button', { name: 'Last card!' });
+    if (await clickIfActionable(lastCard)) return true;
+    return actIfPossible(page);
+  };
+
+  for (let turn = 0; turn < 90 && !sawStack; turn++) {
+    for (const page of pages) {
+      await actThroughRound(page);
+      if (await stackedText.isVisible().catch(() => false)) {
+        sawStack = true;
+        break;
+      }
+    }
+  }
+
+  expect(sawStack).toBe(true);
+  await expect(history.locator('li')).toHaveCount(3);
+  await expect(stackedText).toBeVisible();
 });

@@ -1,4 +1,5 @@
 import type { Action, CardValue, Color, GameState, PlayerState } from '../engine/types';
+import type { GameEvent } from './events';
 
 export type PublicNoticeKind =
   | 'play' | 'draw' | 'pass' | 'penalty' | 'color' | 'skip' | 'reverse'
@@ -129,64 +130,92 @@ export function deriveConnectionNotice(
   return { id, kind: connected ? 'reconnect' : 'disconnect', actorId: playerId };
 }
 
-function playerName(players: Pick<PlayerState, 'id' | 'name'>[], playerId: string | undefined, youId: string): string {
-  if (!playerId) return 'Someone';
-  if (playerId === youId) return 'you';
-  return players.find((player) => player.id === playerId)?.name ?? 'Someone';
-}
-
-function actorLabel(players: Pick<PlayerState, 'id' | 'name'>[], actorId: string | undefined, youId: string): string {
-  if (!actorId) return 'Someone';
-  return actorId === youId ? 'You' : playerName(players, actorId, youId);
-}
-
-function cardLabel(card: PublicNotice['card']): string {
-  if (!card) return 'a card';
-  const value = card.value === 'wild4' ? 'Wild +4' : card.value === 'draw2' ? '+2' : card.value;
-  if (card.color === null) return value;
-  return `${card.color} ${value}`;
-}
-
 export function formatNotice(
   notice: PublicNotice,
   players: Pick<PlayerState, 'id' | 'name'>[],
   youId: string
 ): string {
-  const actor = actorLabel(players, notice.actorId, youId);
-  const target = playerName(players, notice.targetId, youId);
+  const name = (id?: string) => id === youId
+    ? 'You'
+    : players.find((player) => player.id === id)?.name ?? 'A player';
+  const actor = name(notice.actorId);
+  const targetName = name(notice.targetId);
+  const target = targetName === 'You' ? 'you' : targetName;
+  const faces = targetName === 'You'
+    ? `You now face ${notice.pendingDraw}`
+    : `${targetName} now faces ${notice.pendingDraw}`;
+  const n = notice.count ?? 0;
+  const card = notice.card
+    ? `${notice.card.color ? notice.card.color + ' ' : ''}${notice.card.value}`
+    : 'a card';
 
   switch (notice.kind) {
     case 'play':
-      return `${actor} played ${cardLabel(notice.card)}`;
+      return `${actor} played ${card}`;
     case 'draw':
-      return `${actor} drew ${notice.count ?? 0}`;
+      return `${actor} drew ${n} ${n === 1 ? 'card' : 'cards'}`;
     case 'pass':
-      return `${actor} passed`;
+      return `${actor} kept the drawn card`;
     case 'penalty':
-      return `Penalty is now +${notice.pendingDraw ?? notice.count ?? 0} for ${target}`;
+      return notice.stacked
+        ? `${actor} stacked the penalty · ${faces}`
+        : `${actor} played a draw card · ${faces}`;
     case 'color':
-      return `${actor} chose ${notice.color?.toUpperCase() ?? 'a colour'}`;
+      return `${actor} chose ${notice.color?.toUpperCase()}`;
     case 'skip':
       return `${actor} skipped ${target}`;
     case 'reverse':
       return `${actor} reversed play`;
     case 'uno':
-      return `${actor} called UNO`;
+      return `${actor} called last card`;
     case 'catch':
-      return `${actor} caught ${target}`;
+      return `${actor} caught ${target} · draw ${n}`;
     case 'jumpIn':
-      return `${actor} jumped in with ${cardLabel(notice.card)}`;
+      return `${actor} jumped in with ${card}`;
     case 'swap':
-      return `${actor} swapped with ${target}`;
+      return `${actor} swapped hands with ${target}`;
     case 'challenge':
-      return notice.challengeSucceeded ? `${actor} won the challenge` : `${actor} lost the challenge`;
+      return notice.challengeSucceeded
+        ? `${actor} won the +4 challenge`
+        : `${actor} lost the +4 challenge`;
     case 'nextRound':
-      return `${actor} started the next round`;
+      return `${actor} dealt the next round`;
     case 'disconnect':
-      return `${actor} disconnected`;
+      return `${actor} lost connection`;
     case 'reconnect':
-      return `${actor} reconnected`;
+      return `${actor} rejoined`;
     case 'roundWin':
-      return notice.actorId === youId ? 'You won the round' : `${actor} won the round`;
+      return `${actor} won the round`;
+  }
+}
+
+const SPECIAL_CARD_VALUES = new Set<CardValue>(['skip', 'reverse', 'draw2', 'wild4']);
+
+export function noticeToGameEvent(notice: PublicNotice, youId: string): GameEvent | null {
+  switch (notice.kind) {
+    case 'draw':
+      return notice.actorId
+        ? {
+            kind: 'draw',
+            playerId: notice.actorId,
+            n: notice.count ?? 0,
+            toSelf: notice.actorId === youId
+          }
+        : null;
+    case 'play':
+    case 'jumpIn':
+      return notice.card && SPECIAL_CARD_VALUES.has(notice.card.value)
+        ? { kind: 'special', card: { id: -notice.id, ...notice.card } }
+        : null;
+    case 'uno':
+      return notice.actorId
+        ? { kind: 'uno', playerId: notice.actorId, isYou: notice.actorId === youId }
+        : null;
+    case 'roundWin':
+      return notice.actorId
+        ? { kind: 'win', winnerId: notice.actorId, isYou: notice.actorId === youId }
+        : null;
+    default:
+      return null;
   }
 }

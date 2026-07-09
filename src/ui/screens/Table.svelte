@@ -7,11 +7,13 @@
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
   import Announce from '../components/Announce.svelte';
+  import ActionHistory from '../components/ActionHistory.svelte';
   import AnimationLayer from '../components/AnimationLayer.svelte';
   import type { Card, Color, OpponentView } from '../../engine/types';
   import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
   import { cubicOut } from 'svelte/easing';
   import { deriveActionPrompt } from '../action-prompt';
+  import { noticeToGameEvent } from '../public-notices';
 
   const view = $derived(session.view);
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
@@ -26,11 +28,20 @@
   // {#key}) only when that specific special lands, not on every event.
   let stampNonce = $state(0);
   let spinNonce = $state(0);
+  let lastNoticeFxId = $state(-1);
   $effect(() => {
     const fx = session.fxEvent;
     if (fx?.kind !== 'special') return;
     if (fx.card.value === 'skip') stampNonce = fx.nonce;
     else if (fx.card.value === 'reverse') spinNonce = fx.nonce;
+  });
+  $effect(() => {
+    const notice = session.currentNotice;
+    const youId = view?.you.id ?? '';
+    if (!notice || notice.id === lastNoticeFxId) return;
+    lastNoticeFxId = notice.id;
+    const event = noticeToGameEvent(notice, youId);
+    if (event) session.fxEvent = { ...event, nonce: notice.id };
   });
   // FLIP / JS transitions aren't caught by the CSS reduced-motion kill-switch.
   const reduce = prefersReducedMotion();
@@ -116,7 +127,10 @@
     </div>
 
     <div class="center">
-      <div class="announce-slot"><Announce /></div>
+      <div class="notice-stack">
+        <div class="announce-slot"><Announce /></div>
+        <ActionHistory />
+      </div>
       <div class="piles">
         <div class="drawpile">
           <div class="stack" use:anchor={'deck'}>
@@ -250,15 +264,23 @@
   }
   .center > * { position: relative; }
   /* Announcement banner floats near the top of the pitch, above the piles. */
-  .announce-slot {
+  .notice-stack {
     position: absolute;
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 5;
     display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: min(92%, 440px);
+    pointer-events: none;
+  }
+  .announce-slot {
+    display: flex;
     justify-content: center;
-    max-width: 92%;
+    width: 100%;
     pointer-events: none;
   }
   .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
