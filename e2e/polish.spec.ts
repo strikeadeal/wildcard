@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { clickIfActionable, actIfPossible, createRoom, joinRoom } from './helpers';
+import { clickIfActionable, actIfPossible, createRoom, expectLobbyPlayer, joinRoom } from './helpers';
 
 test('host actions remain visible in a two-player mobile lobby', async ({ browser }) => {
   const host = await browser.newPage();
   const guest = await browser.newPage();
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible();
+  await expectLobbyPlayer(host, 'Gil', 20_000);
   const start = host.getByRole('button', { name: 'Start game' });
   await expect(start).toBeInViewport({ ratio: 1 });
   await expect(host.getByRole('button', { name: 'Leave room' })).toBeInViewport({ ratio: 1 });
@@ -64,8 +64,8 @@ test('table shows actionable prompts, scores, and away-player controls safely', 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guestA, code, 'Gil');
   await joinRoom(guestB, code, 'Ira');
-  await expect(host.getByText('Gil')).toBeVisible();
-  await expect(host.getByText('Ira')).toBeVisible();
+  await expectLobbyPlayer(host, 'Gil');
+  await expectLobbyPlayer(host, 'Ira');
   await host.getByRole('button', { name: 'Start game' }).click();
 
   await expect(host.locator('.status')).toContainText(/Your turn|Waiting for|Jump in now|Choose|Stack|Draw/);
@@ -99,8 +99,8 @@ test('queued notices keep stacked penalties visible in recent actions', async ({
   const code = await createRoom(host, 'Hana');
   await joinRoom(guestA, code, 'Gil');
   await joinRoom(guestB, code, 'Ira');
-  await expect(host.getByText('Gil')).toBeVisible();
-  await expect(host.getByText('Ira')).toBeVisible();
+  await expectLobbyPlayer(host, 'Gil');
+  await expectLobbyPlayer(host, 'Ira');
   await host.getByLabel('Stacking').check();
   await host.getByRole('button', { name: 'Start game' }).click();
 
@@ -141,7 +141,7 @@ test('connection overlay keeps the frozen table visible and ends in room unavail
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.locator('.seats li').filter({ hasText: 'Gil' })).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 

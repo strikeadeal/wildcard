@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { actIfPossible, clickIfActionable, createRoom, joinRoom } from './helpers';
+import { actIfPossible, clickIfActionable, createRoom, expectLobbyPlayer, joinRoom } from './helpers';
 
 async function dropGuestConnection(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__wildcardTest.dropGuestConnection());
@@ -25,7 +25,7 @@ test('two players create, join, and play a full round to a win', async ({ browse
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
 
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
@@ -58,7 +58,7 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 
@@ -108,7 +108,7 @@ test('house-rule toggles propagate to guests and the game runs with them on', as
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expectLobbyPlayer(host, 'Gil', 20_000);
 
   for (const rule of ['Stacking', 'Jump-in', 'Draw to match', '7-0']) {
     await host.getByRole('checkbox', { name: new RegExp(rule) }).check();

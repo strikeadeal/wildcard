@@ -16,6 +16,12 @@ export async function joinRoom(page: Page, code: string, name: string): Promise<
   await page.getByRole('button', { name: 'Join', exact: true }).click();
 }
 
+export async function expectLobbyPlayer(page: Page, name: string, timeout?: number): Promise<void> {
+  const rows = page.locator('.seats li').filter({ has: page.locator('.pname', { hasText: name }) });
+  await expect(rows).toHaveCount(1, timeout ? { timeout } : undefined);
+  await expect(rows.first().locator('.pname')).toHaveText(name, timeout ? { timeout } : undefined);
+}
+
 /**
  * Click a locator only if it is still visible and enabled at the moment of
  * the check, and bound the click itself — a control that flips from
