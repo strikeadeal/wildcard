@@ -60,4 +60,23 @@ describe('session notice handling', () => {
 
     expect(session.lastPlayFromSelf).toBe(false);
   });
+
+  it('bumps selectionEpoch when recovery starts and when a recovered view arrives', () => {
+    (session as any).view = view({ discardTop: C('red', '5') });
+    session.screen = 'game';
+    session.isHost = false;
+    session.recovery = 'idle';
+    session.selectionEpoch = 0;
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+    (session as any).destroyPeer = () => {};
+    (session as any).recoverGuest = () => Promise.resolve();
+
+    (session as any).handleGuestClosed();
+    expect(session.recovery).toBe('reconnecting');
+    expect(session.selectionEpoch).toBe(1);
+
+    (session as any).handleView(view({ discardTop: C('blue', '7') }));
+    expect(session.recovery).toBe('idle');
+    expect(session.selectionEpoch).toBe(2);
+  });
 });

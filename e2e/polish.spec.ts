@@ -141,7 +141,7 @@ test('connection overlay keeps the frozen table visible and ends in room unavail
 
   const code = await createRoom(host, 'Hana');
   await joinRoom(guest, code, 'Gil');
-  await expect(host.getByText('Gil')).toBeVisible({ timeout: 20_000 });
+  await expect(host.locator('.seats li').filter({ hasText: 'Gil' })).toBeVisible({ timeout: 20_000 });
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 

@@ -56,6 +56,7 @@ class Session {
   playerId = $state<string | null>(null);
   prefillCode = $state('');
   recovery = $state<RecoveryState>('idle');
+  selectionEpoch = $state(0);
   currentNotice = $derived(this.noticeQueue[0] ?? null);
 
   gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
@@ -106,6 +107,10 @@ class Session {
     this.noticeTimer = setTimeout(() => this.dismissCurrentNotice(), 2400);
   }
 
+  private bumpSelectionEpoch(): void {
+    this.selectionEpoch++;
+  }
+
   /**
    * Both host and guest funnel incoming views here. Transported notices drive
    * queue/history state when present; otherwise older hosts still fall back to
@@ -129,6 +134,7 @@ class Session {
     }
     this.view = view;
     if (this.recovery !== 'idle') {
+      this.bumpSelectionEpoch();
       this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
     }
     this.operation = null;
@@ -151,6 +157,7 @@ class Session {
       return;
     }
     if (this.recovery === 'reconnecting') return;
+    this.bumpSelectionEpoch();
     this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
     const destroyPeer = this.destroyPeer;
     this.destroyPeer = null;
@@ -362,8 +369,15 @@ class Session {
 
   retryRecovery(): void {
     if (this.recovery !== 'networkUnavailable') return;
+    this.bumpSelectionEpoch();
     this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
     void this.recoverGuest();
+  }
+
+  dropGuestConnectionForTest(): void {
+    if (!import.meta.env.DEV || this.isHost || !this.guest) return;
+    this.handleGuestStatus('unstable');
+    setTimeout(() => this.guest?.close(), 60);
   }
 
   clearFatalToHome(): void {

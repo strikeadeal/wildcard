@@ -19,6 +19,7 @@
 
   const view = $derived(session.view);
   const recovery = $derived(session.recovery);
+  const selectionEpoch = $derived(session.selectionEpoch);
   const recovering = $derived(recovery !== 'idle');
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
   const prompt = $derived(view ? deriveActionPrompt(view) : null);
@@ -79,6 +80,24 @@
   }
 
   let pendingWild = $state<number | null>(null);
+  let lastSelectionEpoch = $state(-1);
+  $effect(() => {
+    if (selectionEpoch === lastSelectionEpoch) return;
+    lastSelectionEpoch = selectionEpoch;
+    pendingWild = null;
+  });
+  $effect(() => {
+    if (!import.meta.env.DEV) return;
+    const testApi = ((window as any).__wildcardTest ??= {});
+    testApi.openPendingWildPicker = () => {
+      if (!recovering && view) pendingWild = Number.MAX_SAFE_INTEGER;
+    };
+    return () => {
+      if ((window as any).__wildcardTest?.openPendingWildPicker) {
+        delete (window as any).__wildcardTest.openPendingWildPicker;
+      }
+    };
+  });
 
   function cardClicked(card: Card) {
     if (recovering || !view || !view.playableCardIds.includes(card.id)) return;

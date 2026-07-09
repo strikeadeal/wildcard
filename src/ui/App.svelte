@@ -9,6 +9,17 @@
   function confirmLeave(e: BeforeUnloadEvent) {
     if (session.gameLive) e.preventDefault();
   }
+
+  $effect(() => {
+    if (!import.meta.env.DEV) return;
+    const testApi = ((window as any).__wildcardTest ??= {});
+    testApi.dropGuestConnection = () => session.dropGuestConnectionForTest();
+    return () => {
+      if ((window as any).__wildcardTest?.dropGuestConnection) {
+        delete (window as any).__wildcardTest.dropGuestConnection;
+      }
+    };
+  });
 </script>
 
 <svelte:window onbeforeunload={confirmLeave} />
