@@ -109,6 +109,8 @@ class Session {
    * deriving banner and animation changes by diffing consecutive views.
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
+    const change = deriveViewChange(this.view, view);
+    this.lastPlayFromSelf = change.fromSelf;
     this.noticeHistory = mergeNoticeHistory(this.noticeHistory, notices);
     const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
       ...this.noticeHistory,
@@ -119,10 +121,8 @@ class Session {
     if (shouldScheduleNotice) this.scheduleNoticeDismissal();
 
     if (notices.length === 0) {
-      const { banner, fromSelf, event } = deriveViewChange(this.view, view);
-      this.lastPlayFromSelf = fromSelf;
-      if (banner) this.showBanner(banner);
-      if (event) this.fxEvent = { ...event, nonce: ++this.fxNonce };
+      if (change.banner) this.showBanner(change.banner);
+      if (change.event) this.fxEvent = { ...change.event, nonce: ++this.fxNonce };
     }
     this.view = view;
     this.operation = null;
