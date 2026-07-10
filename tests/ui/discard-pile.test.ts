@@ -37,6 +37,10 @@ describe('nextDiscardPile', () => {
     expect(result.map((c) => c.id)).toEqual([2, 3, 4]);
   });
 
+  it('returns an empty pile for limit 0 instead of the whole array (slice(-0) hazard)', () => {
+    expect(nextDiscardPile([card(1), card(2)], card(3), false, 0)).toEqual([]);
+  });
+
   it('leaves the pile unchanged when there is no discard top', () => {
     const current = [card(1)];
     expect(nextDiscardPile(current, null, false)).toBe(current);

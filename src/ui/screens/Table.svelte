@@ -338,6 +338,9 @@
     inset: 0;
     pointer-events: none;
   }
+  /* Positioned so it paints in the same phase as the absolutely-positioned
+     .under cards, where DOM order keeps the top card above the pile. */
+  .landed { position: relative; }
   /* Holds the deterministic resting tilt so `land` (which owns the outer
      transform for the fly-in) can animate independently of it — a card keeps
      this same rotation whether it's the top card or has been demoted to an

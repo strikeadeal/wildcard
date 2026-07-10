@@ -18,6 +18,9 @@ export function nextDiscardPile(
   if (freshDeal) return top ? [top] : [];
   if (!top) return current;
   if (current.length > 0 && current[current.length - 1]!.id === top.id) return current;
+  // slice(-0) would return the whole array, so a non-positive limit is an
+  // explicit empty pile rather than an accidental unbounded one.
+  if (limit <= 0) return [];
   return [...current, top].slice(-limit);
 }
 
