@@ -9,6 +9,10 @@ async function openPendingWildPicker(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__wildcardTest.openPendingWildPicker());
 }
 
+async function dropHostSignaling(page: Page): Promise<void> {
+  await page.evaluate(() => (window as any).__wildcardTest.dropHostSignaling());
+}
+
 test('action helper does not wait on a control that became disabled', async ({ page }) => {
   await page.setContent('<button aria-label="Face-down card" disabled>W</button>');
   const started = Date.now();
@@ -98,6 +102,38 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await expect(guest.getByRole('status')).toHaveCount(0, { timeout: 20_000 });
   await expect(guest.locator('.swatches')).toHaveCount(0);
   await expect(host.getByText('away')).toBeHidden({ timeout: 20_000 });
+
+  await hostCtx.close();
+  await guestCtx.close();
+});
+
+test('a guest joining after a host broker reconnect gets exactly one seat', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+
+  const code = await createRoom(host, 'Pat');
+  // Drop the host's signaling socket the way the public broker does; the
+  // session auto-reconnects and PeerJS re-emits 'open'. A joiner arriving
+  // after that used to be attached once per 'open' → duplicate lobby seats.
+  await dropHostSignaling(host);
+  await host.waitForTimeout(1_000); // let the reconnect settle
+
+  await joinRoom(guest, code, 'Libby');
+  await expectLobbyPlayer(host, 'Libby', 20_000); // asserts exactly one row
+  await expectLobbyPlayer(guest, 'Libby', 20_000);
+
+  // The single seat must be fully functional: start and let the guest act.
+  await host.getByRole('button', { name: 'Start game' }).click();
+  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  const pages = [host, guest];
+  let guestActed = false;
+  for (let i = 0; i < 60 && !guestActed; i++) {
+    guestActed = await actIfPossible(guest);
+    if (!guestActed && !(await actIfPossible(host))) await host.waitForTimeout(250);
+  }
+  expect(guestActed).toBe(true); // the guest's intents still reach the host
 
   await hostCtx.close();
   await guestCtx.close();

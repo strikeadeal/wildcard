@@ -219,6 +219,39 @@ describe('HostSession', () => {
     expect(lobby.players).toHaveLength(2); // host + one guest, not two guests
   });
 
+  it('frees the seat when a guest drops in the lobby, so a retry never duplicates them', async () => {
+    const a = new Wire(host);
+    a.hello('Libby');
+    await flush();
+    expect(host.lobbyInfo().players.map((p) => p.name)).toEqual(['Host', 'Libby']);
+
+    a.conn.close();
+    await flush();
+    // Pre-game there is nothing to hold the seat for — it is gone, not "Away".
+    expect(host.lobbyInfo().players.map((p) => p.id)).toEqual(['p0']);
+    expect(events.lobbies[events.lobbies.length - 1]!.players).toHaveLength(1);
+
+    // The retry lost its welcome (token never persisted) and rejoins tokenless.
+    const retry = new Wire(host);
+    retry.hello('Libby');
+    await flush();
+    const names = host.lobbyInfo().players.map((p) => p.name);
+    expect(names).toEqual(['Host', 'Libby']); // exactly one Libby
+  });
+
+  it('keeps a mid-game seat on disconnect so the token rejoin can restore it', async () => {
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+    host.startGame();
+    await flush();
+    a.conn.close();
+    await flush();
+    // In-game the seat must survive (hand, score, turn order) — just flagged away.
+    expect(host.state!.players.map((p) => p.id)).toEqual(['p0', 'p1']);
+    expect(host.state!.players[1]!.connected).toBe(false);
+  });
+
   it('removeSeat before start drops the guest from the lobby and closes their wire', async () => {
     const a = new Wire(host);
     a.hello('Ada');

@@ -90,6 +90,7 @@ class Session {
   private host: HostSession | null = null;
   private guest: GuestSession | null = null;
   private destroyPeer: (() => void) | null = null;
+  private dropHostSignaling: (() => void) | null = null;
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -356,6 +357,7 @@ class Session {
           return;
         }
         this.destroyPeer = room.destroy;
+        this.dropHostSignaling = room.dropSignaling;
         this.roomCode = code;
         this.lobby = this.host.lobbyInfo();
         this.operation = null;
@@ -448,6 +450,13 @@ class Session {
     setTimeout(() => this.guest?.close(), 60);
   }
 
+  /** Simulate a broker socket drop on the host (auto-reconnects, re-emitting
+   * PeerJS 'open') — the production trigger for duplicate-listener bugs. */
+  dropHostSignalingForTest(): void {
+    if (!import.meta.env.DEV || !this.isHost) return;
+    this.dropHostSignaling?.();
+  }
+
   clearFatalToHome(): void {
     this.leave();
   }
@@ -488,6 +497,7 @@ class Session {
     this.host = null;
     this.guest = null;
     this.destroyPeer = null;
+    this.dropHostSignaling = null;
     this.roomCode = null;
     this.lobby = null;
     this.view = null;

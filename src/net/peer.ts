@@ -144,19 +144,33 @@ function wrap(dc: DataConnection): Connection {
   };
 }
 
+export interface HostRoomHandle {
+  destroy(): void;
+  /** Test-only: drop the broker socket the way a flaky network does; the
+   * 'disconnected' handler below then reconnects, re-emitting 'open'. */
+  dropSignaling(): void;
+}
+
 export function hostRoom(
   code: string,
   onConnection: (conn: Connection) => void
-): Promise<{ destroy(): void }> {
+): Promise<HostRoomHandle> {
   return new Promise((resolve, reject) => {
     const peer = new Peer(codeToPeerId(code), peerOptions());
     let settled = false;
+    // Registered once, outside 'open': PeerJS re-emits 'open' after every
+    // broker reconnect, and a listener added per 'open' would attach each
+    // future guest connection N times (duplicate seats, superseded rejoins).
+    peer.on('connection', (dc) => {
+      dc.on('open', () => onConnection(wrap(dc)));
+    });
     peer.on('open', () => {
-      peer.on('connection', (dc) => {
-        dc.on('open', () => onConnection(wrap(dc)));
-      });
+      if (settled) return; // reconnect re-emits 'open'
       settled = true;
-      resolve({ destroy: () => peer.destroy() });
+      resolve({
+        destroy: () => peer.destroy(),
+        dropSignaling: () => peer.disconnect()
+      });
     });
     // A broker drop after setup must not kill live games: established data
     // channels survive signaling loss. Reconnect so future joins still work.
@@ -176,7 +190,10 @@ export function joinRoom(code: string): Promise<{ conn: Connection; destroy(): v
   return new Promise((resolve, reject) => {
     const peer = new Peer(peerOptions());
     let settled = false;
+    let dialed = false;
     peer.on('open', () => {
+      if (dialed) return; // a broker reconnect re-emits 'open'; dial only once
+      dialed = true;
       const dc = peer.connect(codeToPeerId(code), { reliable: true, serialization: 'json' });
       dc.on('open', () => {
         settled = true;
