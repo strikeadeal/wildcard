@@ -207,6 +207,7 @@
       </svg>
     </button>
 
+    <div class="content">
     <div class="opponents">
       {#each others as p (p.id)}
         <OpponentSeat
@@ -271,16 +272,22 @@
               {/if}
             {/key}
           </div>
-          <span class="colordot {view.currentColor}" aria-label="current color {view.currentColor}">
-            {view.currentColor}
-          </span>
+          <div class="meta">
+            <span class="colordot {view.currentColor}" aria-label="current color {view.currentColor}">
+              {view.currentColor}
+            </span>
+            <span class="direction" class:flip={view.direction === -1} aria-label="direction of play">
+              {#key spinNonce}
+                <svg class="dir-arrow" class:spin={spinNonce > 0} viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                     stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 12a9 9 0 1 1-3-6.7" />
+                  <polyline points="21 3 21 9 15 9" />
+                </svg>
+              {/key}
+            </span>
+          </div>
         </div>
-
-        {#key spinNonce}
-          <span class="direction" class:spin={spinNonce > 0} aria-label="direction of play">
-            {view.direction === 1 ? '↻' : '↺'}
-          </span>
-        {/key}
       </div>
 
       <ActionHistory />
@@ -316,6 +323,7 @@
           />
         </div>
       {/each}
+    </div>
     </div>
   </div>
 
@@ -383,6 +391,17 @@
   .table.my-turn .hand {
     outline: 1px solid rgb(230 184 75 / 0.45);
     box-shadow: 0 0 0 1px rgb(230 184 75 / 0.2) inset, 0 0 24px rgb(230 184 75 / 0.18);
+  }
+  /* The table's content column — opponents through hand — kept as its own
+     flex column so a desktop breakpoint can cap its width without touching
+     the outer .table (which still owns safe-area padding). */
+  .content {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
   .opponents {
     display: flex;
@@ -483,7 +502,15 @@
   .colordot.green { background: var(--card-green); }
   .colordot.blue { background: var(--card-blue); }
 
-  .direction { font-size: 1.9rem; color: var(--muted); line-height: 1; }
+  .meta { display: flex; align-items: center; gap: 6px; }
+  .direction {
+    display: inline-flex;
+    color: var(--muted);
+    line-height: 1;
+    transition: transform var(--motion-medium) ease;
+  }
+  .direction.flip { transform: scaleX(-1); }
+  .dir-arrow { width: 22px; height: 22px; }
 
   .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
 
@@ -506,6 +533,16 @@
     scrollbar-width: none;
     border-radius: 16px;
     transition: outline-color var(--motion-medium) ease, box-shadow var(--motion-medium) ease;
+    /* Fade the horizontal scroll edges so a clipped card at the viewport
+       edge reads as "more to scroll", not a hard crop. Mask only the
+       inline axis: .playable cards translate up past the top padding and
+       must stay fully visible, which a horizontal-only gradient preserves. */
+    mask-image: linear-gradient(
+      to right, transparent 0, black 20px, black calc(100% - 20px), transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right, transparent 0, black 20px, black calc(100% - 20px), transparent 100%
+    );
   }
   .hand::-webkit-scrollbar { display: none; }
   /* Hold them like a real hand: a slight overlap. */
@@ -530,7 +567,7 @@
     100% { opacity: 0; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
   }
 
-  .direction.spin { animation: revspin 460ms var(--ease-out); }
+  .dir-arrow.spin { animation: revspin 460ms var(--ease-out); }
   @keyframes revspin {
     0% { transform: rotate(0deg) scale(1); color: var(--brass); }
     100% { transform: rotate(360deg) scale(1); }
@@ -543,5 +580,13 @@
     70% { transform: scale(0.96) translateX(-2px); }
     85% { transform: translateX(2px); }
     100% { transform: scale(1) translateX(0); }
+  }
+
+  /* Wide screens: the felt otherwise sprawls edge-to-edge. Cap the content
+     column so opponents/piles/prompt/hand share one visual axis, and give
+     the cards themselves a little more presence. */
+  @media (min-width: 900px) {
+    .content { max-width: 760px; margin-inline: auto; }
+    .piles { --card-w: 96px; }
   }
 </style>

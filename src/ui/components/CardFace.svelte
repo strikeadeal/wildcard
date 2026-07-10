@@ -47,7 +47,7 @@
   {:else if card}
     <span class="oval" class:wild={isWild}>
       {#if !isWild || kind === 'wild4'}
-        {@render glyph(kind === 'wild4' ? '+4' : kind, 'big')}
+        {@render glyph(CORNER[kind] ?? kind, 'big')}
       {/if}
     </span>
     {#if !isWild}

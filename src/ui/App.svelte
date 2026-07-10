@@ -60,7 +60,7 @@
 <style>
   .toast {
     position: fixed;
-    bottom: calc(24px + env(safe-area-inset-bottom));
+    bottom: calc(24px + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     background: var(--surface);

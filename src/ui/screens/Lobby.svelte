@@ -85,7 +85,7 @@
       calc(20px + var(--safe-right))
       calc(36px + var(--safe-bottom))
       calc(20px + var(--safe-left));
-    padding-bottom: 132px;
+    padding-bottom: calc(132px + var(--safe-bottom));
     display: flex;
     flex-direction: column;
     gap: 22px;
