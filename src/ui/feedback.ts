@@ -47,9 +47,11 @@ export function cueForNotice(notice: PublicNotice, youId: string): Cue | null {
     case 'skip':
     case 'reverse':
       return null;
-    default:
-      return null;
   }
+  // Compiler-enforced exhaustiveness: adding a PublicNoticeKind without a
+  // case above fails the build here instead of going silently muted.
+  const exhaustive: never = notice.kind;
+  return exhaustive;
 }
 
 /** Vibration pattern (ms) per cue — short and understated throughout. */
@@ -127,6 +129,10 @@ export function initFeedback(): void {
   const onGesture = () => {
     try {
       if (!audioCtx) audioCtx = createAudioContext();
+      // Some browsers create the context suspended even inside a gesture —
+      // resume here or sound stays dead for the whole session (the listener
+      // is one-shot and playCue no-ops on a suspended context).
+      if (audioCtx?.state === 'suspended') audioCtx.resume().catch(() => {});
     } catch {
       /* ignore */
     }
