@@ -218,7 +218,7 @@
         <div
           class="handcard"
           animate:flip={{ duration: flipDur }}
-          in:dealIn={{ index: i }}
+          in:dealIn|global={{ index: i }}
         >
           <CardFace
             {card}
