@@ -33,47 +33,9 @@ function view(over: Partial<PlayerView> = {}): PlayerView {
   };
 }
 
-describe('deriveViewChange — banner (unchanged behaviour)', () => {
-  it('says nothing on the first view (no prior state)', () => {
-    const r = deriveViewChange(null, view());
-    expect(r.banner).toBeNull();
-    expect(r.fromSelf).toBe(false);
-  });
-
-  it('says nothing for a normal coloured play', () => {
-    const prev = view({ discardTop: C('red', '5'), currentColor: 'red' });
-    const next = view({ discardTop: C('green', '3'), currentColor: 'green', turnPlayerId: 'p1' });
-    expect(deriveViewChange(prev, next).banner).toBeNull();
-  });
-
-  it('announces the colour once a wild colour has settled', () => {
-    const prev = view({ discardTop: C('blue', '2'), currentColor: 'blue', turnPlayerId: 'p0' });
-    const next = view({ discardTop: C(null, 'wild'), currentColor: 'green', phase: 'play', turnPlayerId: 'p1' });
-    expect(deriveViewChange(prev, next).banner).toBe('Colour is now GREEN');
-  });
-
-  it('stays silent while the wild is still in the choose-colour phase', () => {
-    const prev = view({ discardTop: C('blue', '2'), currentColor: 'blue' });
-    const next = view({ discardTop: C(null, 'wild'), currentColor: 'blue', phase: 'chooseColor' });
-    expect(deriveViewChange(prev, next).banner).toBeNull();
-  });
-
-  it('names the victim when a +2 is played', () => {
-    const prev = view({ pendingDraw: 0, discardTop: C('red', '5'), turnPlayerId: 'p0' });
-    const next = view({ pendingDraw: 2, discardTop: C('red', 'draw2'), turnPlayerId: 'p1' });
-    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +2 for Bob');
-  });
-
-  it('uses second person when the penalty falls on you', () => {
-    const prev = view({ pendingDraw: 0, turnPlayerId: 'p1' });
-    const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), turnPlayerId: 'p0' });
-    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for you');
-  });
-
-  it('re-announces the stacked total when penalties stack', () => {
-    const prev = view({ pendingDraw: 2, turnPlayerId: 'p1' });
-    const next = view({ pendingDraw: 4, discardTop: C('blue', 'draw2'), turnPlayerId: 'p2' });
-    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for Cyd');
+describe('deriveViewChange — fromSelf (drives fly direction)', () => {
+  it('is false on the first view (no prior state)', () => {
+    expect(deriveViewChange(null, view()).fromSelf).toBe(false);
   });
 
   it('reports fromSelf when the local player played', () => {
@@ -87,18 +49,6 @@ describe('deriveViewChange — banner (unchanged behaviour)', () => {
     const prev = view({ discardTop: top, turnPlayerId: 'p0' });
     const next = view({ discardTop: top, turnPlayerId: 'p0', deckCount: 79 });
     expect(deriveViewChange(prev, next).fromSelf).toBe(false);
-  });
-
-  it('names the victim when a +4 is played', () => {
-    const prev = view({ pendingDraw: 0, discardTop: C('red', '5'), turnPlayerId: 'p0' });
-    const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), currentColor: 'yellow', turnPlayerId: 'p2' });
-    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for Cyd');
-  });
-
-  it('prefers the penalty message over the colour message for a Wild+4', () => {
-    const prev = view({ pendingDraw: 0, currentColor: 'red', turnPlayerId: 'p0' });
-    const next = view({ pendingDraw: 4, discardTop: C(null, 'wild4'), currentColor: 'blue', turnPlayerId: 'p1' });
-    expect(deriveViewChange(prev, next).banner).toBe('Penalty is now +4 for Bob');
   });
 
   it('reports not fromSelf when an opponent played', () => {
@@ -186,5 +136,41 @@ describe('deriveViewChange — animation events', () => {
   it('does not replay a win when the first observed view is already round-end (reconnect)', () => {
     const next = view({ phase: 'roundEnd', roundWinner: 'p1' });
     expect(deriveViewChange(null, next).event).toBeNull();
+  });
+});
+
+describe('deriveViewChange — freshDeal (drives opening deal stagger)', () => {
+  it('is true on the very first view when the hand already has multiple cards (reconnect mid-round)', () => {
+    const next = view({ you: { id: 'p0', name: 'Ada', hand: [C('red', '5'), C('blue', '7')], saidUno: false, score: 0 } });
+    expect(deriveViewChange(null, next).freshDeal).toBe(true);
+  });
+
+  it('is true on a roundEnd -> playing transition with a freshly dealt hand', () => {
+    const prev = view({ phase: 'roundEnd' });
+    const next = view({
+      phase: 'play',
+      you: { id: 'p0', name: 'Ada', hand: [C('red', '5'), C('blue', '7'), C('green', '2')], saidUno: false, score: 0 }
+    });
+    expect(deriveViewChange(prev, next).freshDeal).toBe(true);
+  });
+
+  it('is false for a mid-round draw (not following round end)', () => {
+    const prev = view({ you: { id: 'p0', name: 'Ada', hand: [C('red', '5')], saidUno: false, score: 0 } });
+    const next = view({ you: { id: 'p0', name: 'Ada', hand: [C('red', '5'), C('blue', '7')], saidUno: false, score: 0 } });
+    expect(deriveViewChange(prev, next).freshDeal).toBe(false);
+  });
+
+  it('is false when the hand has one or fewer cards, even on a fresh deal', () => {
+    const prev = view({ phase: 'roundEnd' });
+    const next = view({
+      phase: 'play',
+      you: { id: 'p0', name: 'Ada', hand: [C('red', '5')], saidUno: false, score: 0 }
+    });
+    expect(deriveViewChange(prev, next).freshDeal).toBe(false);
+  });
+
+  it('is false on the very first view when the hand is empty', () => {
+    const next = view({ you: { id: 'p0', name: 'Ada', hand: [], saidUno: false, score: 0 } });
+    expect(deriveViewChange(null, next).freshDeal).toBe(false);
   });
 });

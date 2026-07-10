@@ -1,4 +1,4 @@
-import { DEFAULT_RULES, type Action, type PlayerView, type RuleConfig } from '../engine/types';
+import { DEFAULT_RULES, type Action, type Card, type PlayerView, type RuleConfig } from '../engine/types';
 import { deriveViewChange, type GameEvent } from './events';
 import { newRoomCode, normalizeCode } from '../net/codes';
 import { GuestSession } from '../net/guest';
@@ -8,6 +8,7 @@ import type { LobbyInfo } from '../net/protocol';
 import type { FatalReason } from './fatal-state';
 import { nextRecoveryState, type RecoveryState } from './connection-state';
 import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
+import { nextDiscardPile } from './discard-pile';
 import type { PublicNotice } from './public-notices';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
@@ -56,12 +57,15 @@ class Session {
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
   toast = $state<string | null>(null);
-  /** Transient game announcement (wild colour pick, +2/+4), separate from errors. */
-  banner = $state<string | null>(null);
   noticeHistory = $state<PublicNotice[]>([]);
   noticeQueue = $state<PublicNotice[]>([]);
   /** True when the local player made the most recent play — drives fly direction. */
   lastPlayFromSelf = $state(false);
+  /** True when the current view is a fresh multi-card deal — drives the opening deal stagger. */
+  freshDeal = $state(false);
+  /** Trailing discard tops (oldest first, current top last) — client-side pile depth, since
+   * `PlayerView` only ever exposes `discardTop`. */
+  recentDiscards = $state<Card[]>([]);
   /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
   fxEvent = $state<(GameEvent & { nonce: number }) | null>(null);
   /** Which connect flow is in flight — drives Connecting's operation-specific copy. */
@@ -88,7 +92,6 @@ class Session {
   private destroyPeer: (() => void) | null = null;
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
-  private bannerTimer: ReturnType<typeof setTimeout> | undefined;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private fxNonce = 0;
   /** True when the most recent fail() happened during a create, not a join. */
@@ -134,6 +137,14 @@ class Session {
     writeStorage(INSTALL_DISMISSED_KEY, '1');
   }
 
+  /** Fired by the `appinstalled` event once the OS finishes installing the PWA —
+   * the prompt is spent and the card must never resurface for this browser. */
+  markInstalled(): void {
+    this.installEvent = null;
+    this.installDismissed = true;
+    writeStorage(INSTALL_DISMISSED_KEY, '1');
+  }
+
   private markReturningPlayer(): void {
     this.returningPlayer = true;
     writeStorage(RETURNING_KEY, '1');
@@ -143,12 +154,6 @@ class Session {
     this.toast = message;
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => (this.toast = null), 3000);
-  }
-
-  private showBanner(message: string): void {
-    this.banner = message;
-    clearTimeout(this.bannerTimer);
-    this.bannerTimer = setTimeout(() => (this.banner = null), 2400);
   }
 
   private scheduleNoticeDismissal(): void {
@@ -163,7 +168,7 @@ class Session {
   /**
    * Both host and guest funnel incoming views here. Transported notices drive
    * queue/history state when present; otherwise older hosts still fall back to
-   * deriving banner and animation changes by diffing consecutive views.
+   * deriving animation changes by diffing consecutive views.
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
@@ -171,6 +176,8 @@ class Session {
     }
     const change = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = change.fromSelf;
+    this.freshDeal = change.freshDeal;
+    this.recentDiscards = nextDiscardPile(this.recentDiscards, view.discardTop, change.freshDeal);
     const seenNotices = [...this.noticeHistory, ...this.noticeQueue];
     const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
       ...seenNotices
@@ -181,7 +188,6 @@ class Session {
     if (shouldScheduleNotice) this.scheduleNoticeDismissal();
 
     if (notices.length === 0) {
-      if (change.banner) this.showBanner(change.banner);
       if (change.event) this.fxEvent = { ...change.event, nonce: ++this.fxNonce };
     }
     this.view = view;
@@ -485,11 +491,11 @@ class Session {
     this.roomCode = null;
     this.lobby = null;
     this.view = null;
-    this.banner = null;
     this.noticeHistory = [];
     this.noticeQueue = [];
     this.fxEvent = null;
-    clearTimeout(this.bannerTimer);
+    this.freshDeal = false;
+    this.recentDiscards = [];
     clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;

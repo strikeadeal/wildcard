@@ -12,7 +12,11 @@ export default defineConfig({
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       workbox: {
         // Precache the self-hosted display font so it works fully offline.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}']
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // iOS snapshots the splash image at install time from the DOM/meta tag,
+        // not the SW cache — keep these heavy, install-only assets out of every
+        // client's precache.
+        globIgnores: ['**/splash-*.png']
       },
       manifest: {
         name: 'WILDCARD — the classic card game',

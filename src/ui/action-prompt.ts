@@ -15,6 +15,7 @@ export function deriveActionPrompt(view: PlayerView): ActionPrompt {
     return { text: 'Jump in now — you have an identical card.', tone: 'urgent' };
   }
   if (!mine) return { text: `Waiting for ${turnName}.`, tone: 'waiting' };
+  if (view.canChallenge) return { text: 'Challenge the +4 or draw.', tone: 'urgent' };
   if (view.pendingDraw > 0 && view.playableCardIds.length > 0) {
     return { text: `Stack the penalty or draw ${view.pendingDraw}.`, tone: 'urgent' };
   }

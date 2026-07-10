@@ -87,10 +87,13 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await dropGuestConnection(guest);
   await expect(guest.getByRole('status')).toContainText('Connection unstable…', { timeout: 10_000 });
   await expect(guest.locator('.swatches')).toHaveCount(0, { timeout: 10_000 });
-  await expect(host.getByText('away')).toBeVisible({ timeout: 20_000 });
-  await expect(guest.getByRole('status')).toContainText('Rejoining your seat…', { timeout: 20_000 });
-  await expect(guest.locator('.hand .card')).toHaveCount(handSize);
-
+  // The Away badge is transient here — a fast rejoin can clear it before this
+  // assertion polls (the badge itself is covered in polish.spec.ts, where the
+  // guest never returns). Assert the durable history entry instead.
+  await expect(host.getByText('Gil lost connection')).toBeVisible({ timeout: 20_000 });
+  // 'Rejoining your seat…' flashes for a single localhost roundtrip — too
+  // transient to assert reliably. The durable outcome of recovery is the
+  // same seat with the same hand, and the overlay gone.
   await expect(guest.locator('.hand .card')).toHaveCount(handSize, { timeout: 30_000 });
   await expect(guest.getByRole('status')).toHaveCount(0, { timeout: 20_000 });
   await expect(guest.locator('.swatches')).toHaveCount(0);

@@ -69,6 +69,7 @@ test('table shows actionable prompts, scores, and away-player controls safely', 
   await host.getByRole('button', { name: 'Start game' }).click();
 
   await expect(host.locator('.table.my-turn')).toBeVisible();
+  await expect(host.locator('.prompt')).toContainText(/Your turn/);
   await expect(host.locator('.drawpile.drawable')).toBeVisible();
   await expect(host.locator('.seat').filter({ hasText: 'Gil' }).getByText(/pts$/)).toBeVisible();
   await expect(host.locator('.seat').filter({ hasText: 'Ira' }).getByText(/pts$/)).toBeVisible();
@@ -86,9 +87,15 @@ test('table shows actionable prompts, scores, and away-player controls safely', 
     await expect(skip).toHaveCount(0);
   }
 
-  const dialog = host.waitForEvent('dialog').then((d) => d.accept());
   await awaySeat.getByRole('button', { name: 'Remove' }).click();
-  await dialog;
+  const confirmDialog = host.getByRole('dialog', { name: 'Remove Gil?' });
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmDialog).toHaveCount(0);
+  await expect(host.locator('.seat').filter({ hasText: 'Gil' })).toHaveCount(1);
+
+  await awaySeat.getByRole('button', { name: 'Remove' }).click();
+  await host.getByRole('dialog', { name: 'Remove Gil?' }).getByRole('button', { name: 'Remove player' }).click();
   await expect(host.locator('.seat').filter({ hasText: 'Gil' })).toHaveCount(0);
 });
 

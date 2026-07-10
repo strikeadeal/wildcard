@@ -13,12 +13,12 @@ export type GameEvent =
   | { kind: 'win'; winnerId: string; isYou: boolean };
 
 export interface ViewChange {
-  /** Message to surface in the banner, or null when nothing notable happened. */
-  banner: string | null;
   /** Whether the local player made the most recent play (drives fly direction). */
   fromSelf: boolean;
   /** The single most salient animation trigger for this transition, if any. */
   event: GameEvent | null;
+  /** True when this transition is a fresh multi-card deal (drives the opening deal stagger). */
+  freshDeal: boolean;
 }
 
 const SPECIAL = new Set<string>(['skip', 'reverse', 'draw2', 'wild4']);
@@ -28,26 +28,10 @@ function isDeal(prev: PlayerView | null): boolean {
   return prev === null || prev.phase === 'roundEnd';
 }
 
-/** Banner text + fly direction — logic preserved verbatim from deriveAnnouncement. */
-function deriveBanner(prev: PlayerView | null, next: PlayerView): { banner: string | null; fromSelf: boolean } {
-  if (!prev || !prev.discardTop || !next.discardTop) return { banner: null, fromSelf: false };
-
-  const discardChanged = next.discardTop.id !== prev.discardTop.id;
-  const fromSelf = discardChanged && prev.turnPlayerId === next.you.id;
-
-  if (next.pendingDraw > prev.pendingDraw) {
-    const isYou = next.turnPlayerId === next.you.id;
-    const name = isYou
-      ? 'you'
-      : next.players.find((p) => p.id === next.turnPlayerId)?.name ?? 'Next player';
-    return { banner: `Penalty is now +${next.pendingDraw} for ${name}`, fromSelf };
-  }
-
-  if (discardChanged && next.discardTop.color === null && next.phase !== 'chooseColor') {
-    return { banner: `Colour is now ${next.currentColor.toUpperCase()}`, fromSelf };
-  }
-
-  return { banner: null, fromSelf };
+/** Fly direction for the discard animation — logic preserved verbatim from deriveAnnouncement. */
+function deriveFromSelf(prev: PlayerView | null, next: PlayerView): boolean {
+  if (!prev || !prev.discardTop || !next.discardTop) return false;
+  return prev.discardTop.id !== next.discardTop.id && prev.turnPlayerId === next.you.id;
 }
 
 /** At most one animation event per transition, most-salient first. */
@@ -86,7 +70,15 @@ function deriveEvent(prev: PlayerView | null, next: PlayerView): GameEvent | nul
   return null;
 }
 
+/** A dealt hand of more than one card, freshly following round-end (or the first view). */
+function deriveFreshDeal(prev: PlayerView | null, next: PlayerView): boolean {
+  return isDeal(prev) && next.you.hand.length > 1;
+}
+
 export function deriveViewChange(prev: PlayerView | null, next: PlayerView): ViewChange {
-  const { banner, fromSelf } = deriveBanner(prev, next);
-  return { banner, fromSelf, event: deriveEvent(prev, next) };
+  return {
+    fromSelf: deriveFromSelf(prev, next),
+    event: deriveEvent(prev, next),
+    freshDeal: deriveFreshDeal(prev, next)
+  };
 }

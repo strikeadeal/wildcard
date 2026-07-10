@@ -22,7 +22,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgb(6 16 12 / 0.72);
+    background: rgb(var(--scrim) / 0.72);
     display: flex;
     align-items: center;
     justify-content: center;

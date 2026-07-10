@@ -16,6 +16,17 @@ export function prefersReducedMotion(): boolean {
 }
 
 /**
+ * Per-card delay (ms) for the opening-deal stagger. Zero when not staggering
+ * (a mid-game draw) or under reduced motion; otherwise grows linearly with
+ * hand position, capped so the whole deal stays well under the e2e action
+ * budget (~750ms — see e2e/helpers.ts clickIfActionable).
+ */
+export function dealDelay(index: number, stagger: boolean, reduce: boolean, step = 55, cap = 9): number {
+  if (!stagger || reduce) return 0;
+  return Math.min(index, cap) * step;
+}
+
+/**
  * A tiny registry of on-screen anchor elements (draw pile, seats) so imperative
  * fx can measure positions without prop-drilling refs across the tree.
  */

@@ -152,4 +152,24 @@ describe('session notice handling', () => {
     expect((session as any).returningPlayer).toBe(true);
     expect(session.canOfferInstall).toBe(true);
   });
+
+  it('markInstalled clears the stashed prompt and persists dismissal so the card never reappears', () => {
+    const installEvent = {
+      preventDefault() {},
+      prompt: async () => {},
+      userChoice: Promise.resolve({ outcome: 'accepted' as const, platform: 'web' })
+    } as Event & {
+      prompt(): Promise<void>;
+      userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+    };
+    session.captureInstallPrompt(installEvent);
+    session.returningPlayer = true;
+    expect(session.canOfferInstall).toBe(true);
+
+    session.markInstalled();
+
+    expect(session.installEvent).toBeNull();
+    expect(session.canOfferInstall).toBe(false);
+    expect(localStorage.getItem('wildcard:install-dismissed')).toBe('1');
+  });
 });

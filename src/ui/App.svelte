@@ -27,6 +27,12 @@
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   });
+
+  onMount(() => {
+    const handler = () => session.markInstalled();
+    window.addEventListener('appinstalled', handler);
+    return () => window.removeEventListener('appinstalled', handler);
+  });
 </script>
 
 <svelte:window
@@ -54,7 +60,7 @@
 <style>
   .toast {
     position: fixed;
-    bottom: calc(24px + env(safe-area-inset-bottom));
+    bottom: calc(24px + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     background: var(--surface);
