@@ -56,8 +56,6 @@ class Session {
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
   toast = $state<string | null>(null);
-  /** Transient game announcement (wild colour pick, +2/+4), separate from errors. */
-  banner = $state<string | null>(null);
   noticeHistory = $state<PublicNotice[]>([]);
   noticeQueue = $state<PublicNotice[]>([]);
   /** True when the local player made the most recent play — drives fly direction. */
@@ -88,7 +86,6 @@ class Session {
   private destroyPeer: (() => void) | null = null;
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
-  private bannerTimer: ReturnType<typeof setTimeout> | undefined;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private fxNonce = 0;
   /** True when the most recent fail() happened during a create, not a join. */
@@ -145,12 +142,6 @@ class Session {
     this.toastTimer = setTimeout(() => (this.toast = null), 3000);
   }
 
-  private showBanner(message: string): void {
-    this.banner = message;
-    clearTimeout(this.bannerTimer);
-    this.bannerTimer = setTimeout(() => (this.banner = null), 2400);
-  }
-
   private scheduleNoticeDismissal(): void {
     clearTimeout(this.noticeTimer);
     this.noticeTimer = setTimeout(() => this.dismissCurrentNotice(), 2400);
@@ -163,7 +154,7 @@ class Session {
   /**
    * Both host and guest funnel incoming views here. Transported notices drive
    * queue/history state when present; otherwise older hosts still fall back to
-   * deriving banner and animation changes by diffing consecutive views.
+   * deriving animation changes by diffing consecutive views.
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
@@ -181,7 +172,6 @@ class Session {
     if (shouldScheduleNotice) this.scheduleNoticeDismissal();
 
     if (notices.length === 0) {
-      if (change.banner) this.showBanner(change.banner);
       if (change.event) this.fxEvent = { ...change.event, nonce: ++this.fxNonce };
     }
     this.view = view;
@@ -485,11 +475,9 @@ class Session {
     this.roomCode = null;
     this.lobby = null;
     this.view = null;
-    this.banner = null;
     this.noticeHistory = [];
     this.noticeQueue = [];
     this.fxEvent = null;
-    clearTimeout(this.bannerTimer);
     clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;
