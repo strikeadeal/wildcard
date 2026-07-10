@@ -60,6 +60,16 @@ export class HostSession {
     conn.onClose(() => {
       if (!seat || seat.conn !== conn) return; // superseded by a rejoin
       seat.conn = null;
+      if (!this.state) {
+        // Pre-game a dropped guest cannot silently return (their client treats
+        // a lobby drop as fatal), so an "Away" seat would only linger as a
+        // ghost — and a tokenless retry would then sit beside it as a
+        // duplicate. Free the seat instead; a rejoin simply seats them fresh.
+        const idx = this.seats.indexOf(seat);
+        if (idx !== -1) this.seats.splice(idx, 1);
+        this.broadcastLobby();
+        return;
+      }
       this.setConnected(seat.id, false);
     });
   }

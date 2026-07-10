@@ -15,9 +15,13 @@
     if (!import.meta.env.DEV) return;
     const testApi = ((window as any).__wildcardTest ??= {});
     testApi.dropGuestConnection = () => session.dropGuestConnectionForTest();
+    testApi.dropHostSignaling = () => session.dropHostSignalingForTest();
     return () => {
       if ((window as any).__wildcardTest?.dropGuestConnection) {
         delete (window as any).__wildcardTest.dropGuestConnection;
+      }
+      if ((window as any).__wildcardTest?.dropHostSignaling) {
+        delete (window as any).__wildcardTest.dropHostSignaling;
       }
     };
   });
