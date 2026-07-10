@@ -17,6 +17,7 @@
   import { noticeToGameEvent } from '../public-notices';
   import { discardTilt } from '../discard-pile';
   import type { RecoveryState } from '../connection-state';
+  import { cueForNotice, initFeedback, isMuted, playCue, setMuted } from '../feedback';
 
   const view = $derived(session.view);
   const recovery = $derived(session.recovery);
@@ -52,6 +53,42 @@
     const event = noticeToGameEvent(notice, youId);
     if (event) session.fxEvent = { ...event, nonce: notice.id };
   });
+
+  // Haptics + synthesized sound. Kept as a separate effect (own last-id
+  // latch) from the fx effect above so the two concerns never entangle.
+  initFeedback();
+  let muted = $state(isMuted());
+  let lastNoticeFeedbackId = $state(-1);
+  $effect(() => {
+    const notice = session.currentNotice;
+    const youId = view?.you.id ?? '';
+    if (!notice || notice.id === lastNoticeFeedbackId) return;
+    lastNoticeFeedbackId = notice.id;
+    const cue = cueForNotice(notice, youId);
+    if (cue) playCue(cue);
+  });
+  // A your-turn cue on the false→true edge only, gated by a first-view latch
+  // so the initial deal / page load never chimes.
+  let seenFirstView = $state(false);
+  let wasMyTurn = $state(false);
+  $effect(() => {
+    if (!view) {
+      seenFirstView = false;
+      wasMyTurn = false;
+      return;
+    }
+    if (!seenFirstView) {
+      seenFirstView = true;
+      wasMyTurn = myTurn;
+      return;
+    }
+    if (myTurn && !wasMyTurn) playCue('yourTurn');
+    wasMyTurn = myTurn;
+  });
+  function toggleMute() {
+    muted = !muted;
+    setMuted(muted);
+  }
   // FLIP / JS transitions aren't caught by the CSS reduced-motion kill-switch.
   const reduce = prefersReducedMotion();
   const flipDur = reduce ? 0 : 220;
@@ -150,6 +187,26 @@
 
 {#if view}
   <div class="table" class:my-turn={myTurn}>
+    <button
+      type="button"
+      class="ghost mute-toggle"
+      aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}
+      aria-pressed={muted}
+      onclick={toggleMute}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor" stroke="none" />
+        {#if muted}
+          <line x1="16.5" y1="9" x2="21.5" y2="15" />
+          <line x1="21.5" y1="9" x2="16.5" y2="15" />
+        {:else}
+          <path d="M16.2 8.6a5 5 0 0 1 0 6.8" />
+          <path d="M18.6 6a9 9 0 0 1 0 12" />
+        {/if}
+      </svg>
+    </button>
+
     <div class="opponents">
       {#each others as p (p.id)}
         <OpponentSeat
@@ -295,6 +352,7 @@
 
 <style>
   .table {
+    position: relative;
     height: 100dvh;
     display: flex;
     flex-direction: column;
@@ -305,6 +363,23 @@
       calc(12px + var(--safe-left));
     gap: 6px;
   }
+  .mute-toggle {
+    position: absolute;
+    top: calc(6px + var(--safe-top));
+    right: calc(6px + var(--safe-right));
+    z-index: 5;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.75;
+  }
+  .mute-toggle:hover:not(:disabled) { opacity: 1; }
   .table.my-turn .hand {
     outline: 1px solid rgb(230 184 75 / 0.45);
     box-shadow: 0 0 0 1px rgb(230 184 75 / 0.2) inset, 0 0 24px rgb(230 184 75 / 0.18);
