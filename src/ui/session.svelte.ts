@@ -1,4 +1,4 @@
-import { DEFAULT_RULES, type Action, type PlayerView, type RuleConfig } from '../engine/types';
+import { DEFAULT_RULES, type Action, type Card, type PlayerView, type RuleConfig } from '../engine/types';
 import { deriveViewChange, type GameEvent } from './events';
 import { newRoomCode, normalizeCode } from '../net/codes';
 import { GuestSession } from '../net/guest';
@@ -8,6 +8,7 @@ import type { LobbyInfo } from '../net/protocol';
 import type { FatalReason } from './fatal-state';
 import { nextRecoveryState, type RecoveryState } from './connection-state';
 import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
+import { nextDiscardPile } from './discard-pile';
 import type { PublicNotice } from './public-notices';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
@@ -62,6 +63,9 @@ class Session {
   lastPlayFromSelf = $state(false);
   /** True when the current view is a fresh multi-card deal — drives the opening deal stagger. */
   freshDeal = $state(false);
+  /** Trailing discard tops (oldest first, current top last) — client-side pile depth, since
+   * `PlayerView` only ever exposes `discardTop`. */
+  recentDiscards = $state<Card[]>([]);
   /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
   fxEvent = $state<(GameEvent & { nonce: number }) | null>(null);
   /** Which connect flow is in flight — drives Connecting's operation-specific copy. */
@@ -165,6 +169,7 @@ class Session {
     const change = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = change.fromSelf;
     this.freshDeal = change.freshDeal;
+    this.recentDiscards = nextDiscardPile(this.recentDiscards, view.discardTop, change.freshDeal);
     const seenNotices = [...this.noticeHistory, ...this.noticeQueue];
     const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
       ...seenNotices
@@ -482,6 +487,7 @@ class Session {
     this.noticeQueue = [];
     this.fxEvent = null;
     this.freshDeal = false;
+    this.recentDiscards = [];
     clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;

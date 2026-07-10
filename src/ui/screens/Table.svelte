@@ -14,6 +14,7 @@
   import { prefersReducedMotion, anchor, getAnchorRect, dealDelay } from '../motion';
   import { cubicOut } from 'svelte/easing';
   import { noticeToGameEvent } from '../public-notices';
+  import { discardTilt } from '../discard-pile';
   import type { RecoveryState } from '../connection-state';
 
   const view = $derived(session.view);
@@ -27,6 +28,10 @@
     return [...view.players.slice(idx + 1), ...view.players.slice(0, idx)];
   });
   const drawFx = $derived(session.fxEvent?.kind === 'draw' ? session.fxEvent : null);
+  // The pile behind the top discard — same array minus its last (current top)
+  // entry — rendered as inert, absolutely-positioned cards for depth.
+  const underDiscards = $derived(session.recentDiscards.slice(0, -1));
+  const topTilt = $derived(view?.discardTop ? discardTilt(view.discardTop.id) : 0);
   // Latch the nonce of the last skip / reverse so the beat re-triggers (via
   // {#key}) only when that specific special lands, not on every event.
   let stampNonce = $state(0);
@@ -52,12 +57,23 @@
 
   // A played card flies onto the discard from the direction of its player:
   // up from your hand when you played it, down from the opponents otherwise.
-  function land(_node: Element, { fromSelf }: { fromSelf: boolean }) {
-    const dy = fromSelf ? 70 : -70;
+  // When it's your play, the flight originates at the hand's actual on-screen
+  // position (falling back to the fixed offset if it isn't measured yet); the
+  // rotation unwinds from a reversed tilt down to 0 as it lands, so it settles
+  // into the resting tilt held by the static inner `.tilt` wrapper.
+  function land(node: Element, { fromSelf, tilt }: { fromSelf: boolean; tilt: number }) {
+    const handRect = fromSelf ? getAnchorRect('hand') : null;
+    const rect = node.getBoundingClientRect();
+    let dx = 0;
+    let dy = fromSelf ? 70 : -70;
+    if (handRect) {
+      dx = handRect.left + handRect.width / 2 - (rect.left + rect.width / 2);
+      dy = handRect.top + handRect.height / 2 - (rect.top + rect.height / 2);
+    }
     return {
       duration: reduce ? 0 : 300,
       css: (t: number, u: number) =>
-        `transform: translateY(${u * dy}px) scale(${0.72 + t * 0.28}); opacity: ${t}`
+        `transform: translate(${u * dx}px, ${u * dy}px) rotate(${u * -tilt}deg) scale(${0.72 + t * 0.28}); opacity: ${t}`
     };
   }
 
@@ -171,19 +187,32 @@
         </div>
 
         <div class="discard">
-          {#key view.discardTop?.id}
-            <div class="landed" in:land={{ fromSelf: session.lastPlayFromSelf }}>
-              <CardFace card={view.discardTop} />
-            </div>
-          {/key}
-          {#key stampNonce}
-            {#if stampNonce > 0}
-              <svg class="skip-stamp" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                   stroke-width="2.4" aria-hidden="true">
-                <circle cx="12" cy="12" r="8.4" /><line x1="6.2" y1="17.8" x2="17.8" y2="6.2" />
-              </svg>
-            {/if}
-          {/key}
+          <div class="pile">
+            {#each underDiscards as underCard (underCard.id)}
+              <div
+                class="under"
+                style="transform: translate({(underCard.id % 5) - 2}px, {(underCard.id % 3) - 1}px) rotate({discardTilt(underCard.id)}deg)"
+                aria-hidden="true"
+              >
+                <CardFace card={underCard} />
+              </div>
+            {/each}
+            {#key view.discardTop?.id}
+              <div class="landed" in:land={{ fromSelf: session.lastPlayFromSelf, tilt: topTilt }}>
+                <div class="tilt" style="transform: rotate({topTilt}deg)">
+                  <CardFace card={view.discardTop} />
+                </div>
+              </div>
+            {/key}
+            {#key stampNonce}
+              {#if stampNonce > 0}
+                <svg class="skip-stamp" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.4" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8.4" /><line x1="6.2" y1="17.8" x2="17.8" y2="6.2" />
+                </svg>
+              {/if}
+            {/key}
+          </div>
           <span class="colordot {view.currentColor}" aria-label="current color {view.currentColor}">
             {view.currentColor}
           </span>
@@ -213,7 +242,7 @@
       {/if}
     </div>
 
-    <div class="hand" role="group" aria-label="Your hand">
+    <div class="hand" role="group" aria-label="Your hand" use:anchor={'hand'}>
       {#each view.you.hand as card, i (card.id)}
         <div
           class="handcard"
@@ -301,6 +330,19 @@
   .center > * { position: relative; }
   .piles { display: flex; align-items: center; gap: 24px; --card-w: 86px; }
   .drawpile, .discard { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
+
+  /* The stack of cards behind the top discard: inert depth, never interactive. */
+  .pile { position: relative; }
+  .under {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  /* Holds the deterministic resting tilt so `land` (which owns the outer
+     transform for the fly-in) can animate independently of it — a card keeps
+     this same rotation whether it's the top card or has been demoted to an
+     under-card, so demotion never visually jumps. */
+  .tilt { width: 100%; height: 100%; }
 
   /* When a draw is available, the deck gets a subtle brass halo. The static
      box-shadow is the reduced-motion fallback (app.css kills the animation). */
