@@ -69,6 +69,7 @@ test('table shows actionable prompts, scores, and away-player controls safely', 
   await host.getByRole('button', { name: 'Start game' }).click();
 
   await expect(host.locator('.table.my-turn')).toBeVisible();
+  await expect(host.locator('.prompt')).toContainText(/Your turn/);
   await expect(host.locator('.drawpile.drawable')).toBeVisible();
   await expect(host.locator('.seat').filter({ hasText: 'Gil' }).getByText(/pts$/)).toBeVisible();
   await expect(host.locator('.seat').filter({ hasText: 'Ira' }).getByText(/pts$/)).toBeVisible();

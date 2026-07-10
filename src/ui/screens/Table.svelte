@@ -7,6 +7,7 @@
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
   import ActionHistory from '../components/ActionHistory.svelte';
+  import TurnPrompt from '../components/TurnPrompt.svelte';
   import AnimationLayer from '../components/AnimationLayer.svelte';
   import ReconnectOverlay from '../components/ReconnectOverlay.svelte';
   import type { Card, Color, OpponentView } from '../../engine/types';
@@ -196,6 +197,8 @@
 
       <ActionHistory />
     </div>
+
+    <TurnPrompt {view} />
 
       <div class="actions">
       {#if view.canChallenge}

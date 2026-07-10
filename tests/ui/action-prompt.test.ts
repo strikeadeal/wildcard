@@ -39,6 +39,13 @@ describe('deriveActionPrompt', () => {
     });
   });
 
+  it('prioritizes a challengeable +4 over stacking', () => {
+    expect(deriveActionPrompt(view({ pendingDraw: 4, canChallenge: true, playableCardIds: [9] }))).toEqual({
+      text: 'Challenge the +4 or draw.',
+      tone: 'urgent'
+    });
+  });
+
   it('explains a stackable penalty', () => {
     expect(deriveActionPrompt(view({ pendingDraw: 4, playableCardIds: [9] }))).toEqual({
       text: 'Stack the penalty or draw 4.',
