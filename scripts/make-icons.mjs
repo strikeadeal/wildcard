@@ -54,11 +54,40 @@ const raster = (svg, size, name, flatten = false) => {
   return p.png().toFile('public/' + name);
 };
 
+// iOS launch splash: opaque felt background, art centred and sized to ~40%
+// of the shorter dimension so it reads at a glance while the app boots.
+const splash = (w, h) => {
+  const artSize = Math.round(Math.min(w, h) * 0.4);
+  const scale = artSize / 512;
+  const cx = w / 2;
+  const cy = h / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
+  ${FELT}
+  <rect width="${w}" height="${h}" fill="url(#felt)"/>
+  <g transform="translate(${cx} ${cy}) scale(${scale}) translate(-256 -256)">${ART}</g>
+</svg>`;
+  return sharp(Buffer.from(svg), { density: 300 })
+    .resize(w, h)
+    .flatten({ background: '#163a2c' })
+    .png()
+    .toFile(`public/splash-${w}x${h}.png`);
+};
+
+const SPLASH_SIZES = [
+  [750, 1334],
+  [828, 1792],
+  [1170, 2532],
+  [1179, 2556],
+  [1284, 2778],
+  [1290, 2796]
+];
+
 await Promise.all([
   raster(rounded, 192, 'icon-192.png'),
   raster(rounded, 512, 'icon-512.png'),
   // Distinct full-bleed opaque variants (not a reused PNG):
   raster(fullBleed, 512, 'icon-maskable-512.png', true),
-  raster(fullBleed, 180, 'apple-touch-icon.png', true)
+  raster(fullBleed, 180, 'apple-touch-icon.png', true),
+  ...SPLASH_SIZES.map(([w, h]) => splash(w, h))
 ]);
-console.log('icons written (rounded + full-bleed maskable/apple-touch)');
+console.log('icons written (rounded + full-bleed maskable/apple-touch + 6 splash sizes)');

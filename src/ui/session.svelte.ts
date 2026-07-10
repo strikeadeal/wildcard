@@ -137,6 +137,14 @@ class Session {
     writeStorage(INSTALL_DISMISSED_KEY, '1');
   }
 
+  /** Fired by the `appinstalled` event once the OS finishes installing the PWA —
+   * the prompt is spent and the card must never resurface for this browser. */
+  markInstalled(): void {
+    this.installEvent = null;
+    this.installDismissed = true;
+    writeStorage(INSTALL_DISMISSED_KEY, '1');
+  }
+
   private markReturningPlayer(): void {
     this.returningPlayer = true;
     writeStorage(RETURNING_KEY, '1');
