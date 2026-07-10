@@ -3,6 +3,7 @@
   import { flip } from 'svelte/animate';
   import CardFace from '../components/CardFace.svelte';
   import ColorPicker from '../components/ColorPicker.svelte';
+  import ConfirmDialog from '../components/ConfirmDialog.svelte';
   import OpponentSeat from '../components/OpponentSeat.svelte';
   import SwapPicker from '../components/SwapPicker.svelte';
   import RoundEnd from '../components/RoundEnd.svelte';
@@ -95,11 +96,13 @@
   }
 
   let pendingWild = $state<number | null>(null);
+  let pendingRemove = $state<OpponentView | null>(null);
   let lastSelectionEpoch = $state(-1);
   $effect(() => {
     if (selectionEpoch === lastSelectionEpoch) return;
     lastSelectionEpoch = selectionEpoch;
     pendingWild = null;
+    pendingRemove = null;
   });
   $effect(() => {
     if (!import.meta.env.DEV) return;
@@ -141,9 +144,7 @@
 
   function removePlayer(player: OpponentView) {
     if (recovering) return;
-    if (confirm(`${player.name} will be removed from this game.`)) {
-      session.removeSeat(player.id);
-    }
+    pendingRemove = player;
   }
 </script>
 
@@ -276,6 +277,18 @@
   {/if}
   {#if view.phase === 'roundEnd'}
     <RoundEnd />
+  {/if}
+  {#if !recovering && pendingRemove}
+    <ConfirmDialog
+      title={`Remove ${pendingRemove.name}?`}
+      body={`${pendingRemove.name} will be removed from this game.`}
+      confirmLabel="Remove player"
+      onconfirm={() => {
+        if (pendingRemove) session.removeSeat(pendingRemove.id);
+        pendingRemove = null;
+      }}
+      oncancel={() => { pendingRemove = null; }}
+    />
   {/if}
   <AnimationLayer />
 {/if}
