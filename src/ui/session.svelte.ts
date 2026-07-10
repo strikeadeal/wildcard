@@ -60,6 +60,8 @@ class Session {
   noticeQueue = $state<PublicNotice[]>([]);
   /** True when the local player made the most recent play — drives fly direction. */
   lastPlayFromSelf = $state(false);
+  /** True when the current view is a fresh multi-card deal — drives the opening deal stagger. */
+  freshDeal = $state(false);
   /** Latest animation trigger (draw/special/uno/win); nonce bumps on every event. */
   fxEvent = $state<(GameEvent & { nonce: number }) | null>(null);
   /** Which connect flow is in flight — drives Connecting's operation-specific copy. */
@@ -162,6 +164,7 @@ class Session {
     }
     const change = deriveViewChange(this.view, view);
     this.lastPlayFromSelf = change.fromSelf;
+    this.freshDeal = change.freshDeal;
     const seenNotices = [...this.noticeHistory, ...this.noticeQueue];
     const nextQueue = appendNoticeQueue(this.noticeQueue, notices, [
       ...seenNotices
@@ -478,6 +481,7 @@ class Session {
     this.noticeHistory = [];
     this.noticeQueue = [];
     this.fxEvent = null;
+    this.freshDeal = false;
     clearTimeout(this.noticeTimer);
     this.operation = null;
     this.fatal = null;

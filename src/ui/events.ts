@@ -17,6 +17,8 @@ export interface ViewChange {
   fromSelf: boolean;
   /** The single most salient animation trigger for this transition, if any. */
   event: GameEvent | null;
+  /** True when this transition is a fresh multi-card deal (drives the opening deal stagger). */
+  freshDeal: boolean;
 }
 
 const SPECIAL = new Set<string>(['skip', 'reverse', 'draw2', 'wild4']);
@@ -68,6 +70,15 @@ function deriveEvent(prev: PlayerView | null, next: PlayerView): GameEvent | nul
   return null;
 }
 
+/** A dealt hand of more than one card, freshly following round-end (or the first view). */
+function deriveFreshDeal(prev: PlayerView | null, next: PlayerView): boolean {
+  return isDeal(prev) && next.you.hand.length > 1;
+}
+
 export function deriveViewChange(prev: PlayerView | null, next: PlayerView): ViewChange {
-  return { fromSelf: deriveFromSelf(prev, next), event: deriveEvent(prev, next) };
+  return {
+    fromSelf: deriveFromSelf(prev, next),
+    event: deriveEvent(prev, next),
+    freshDeal: deriveFreshDeal(prev, next)
+  };
 }

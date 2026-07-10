@@ -138,3 +138,39 @@ describe('deriveViewChange — animation events', () => {
     expect(deriveViewChange(null, next).event).toBeNull();
   });
 });
+
+describe('deriveViewChange — freshDeal (drives opening deal stagger)', () => {
+  it('is true on the very first view when the hand already has multiple cards (reconnect mid-round)', () => {
+    const next = view({ you: { id: 'p0', name: 'Ada', hand: [C('red', '5'), C('blue', '7')], saidUno: false, score: 0 } });
+    expect(deriveViewChange(null, next).freshDeal).toBe(true);
+  });
+
+  it('is true on a roundEnd -> playing transition with a freshly dealt hand', () => {
+    const prev = view({ phase: 'roundEnd' });
+    const next = view({
+      phase: 'play',
+      you: { id: 'p0', name: 'Ada', hand: [C('red', '5'), C('blue', '7'), C('green', '2')], saidUno: false, score: 0 }
+    });
+    expect(deriveViewChange(prev, next).freshDeal).toBe(true);
+  });
+
+  it('is false for a mid-round draw (not following round end)', () => {
+    const prev = view({ you: { id: 'p0', name: 'Ada', hand: [C('red', '5')], saidUno: false, score: 0 } });
+    const next = view({ you: { id: 'p0', name: 'Ada', hand: [C('red', '5'), C('blue', '7')], saidUno: false, score: 0 } });
+    expect(deriveViewChange(prev, next).freshDeal).toBe(false);
+  });
+
+  it('is false when the hand has one or fewer cards, even on a fresh deal', () => {
+    const prev = view({ phase: 'roundEnd' });
+    const next = view({
+      phase: 'play',
+      you: { id: 'p0', name: 'Ada', hand: [C('red', '5')], saidUno: false, score: 0 }
+    });
+    expect(deriveViewChange(prev, next).freshDeal).toBe(false);
+  });
+
+  it('is false on the very first view when the hand is empty', () => {
+    const next = view({ you: { id: 'p0', name: 'Ada', hand: [], saidUno: false, score: 0 } });
+    expect(deriveViewChange(null, next).freshDeal).toBe(false);
+  });
+});

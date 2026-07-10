@@ -11,7 +11,7 @@
   import AnimationLayer from '../components/AnimationLayer.svelte';
   import ReconnectOverlay from '../components/ReconnectOverlay.svelte';
   import type { Card, Color, OpponentView } from '../../engine/types';
-  import { prefersReducedMotion, anchor, getAnchorRect } from '../motion';
+  import { prefersReducedMotion, anchor, getAnchorRect, dealDelay } from '../motion';
   import { cubicOut } from 'svelte/easing';
   import { noticeToGameEvent } from '../public-notices';
   import type { RecoveryState } from '../connection-state';
@@ -64,12 +64,13 @@
   // A newly-held card flies from the draw pile into its slot, then the FLIP
   // reflow settles the hand. Falls back to a short lift if the deck isn't
   // measured yet (e.g. very first paint).
-  function dealIn(node: Element) {
+  function dealIn(node: Element, { index }: { index: number }) {
     const deck = getAnchorRect('deck');
     const rect = node.getBoundingClientRect();
     const dx = deck ? deck.left + deck.width / 2 - (rect.left + rect.width / 2) : 0;
     const dy = deck ? deck.top + deck.height / 2 - (rect.top + rect.height / 2) : -46;
     return {
+      delay: dealDelay(index, session.freshDeal, reduce),
       duration: reduce ? 0 : 320,
       easing: cubicOut,
       css: (t: number, u: number) =>
@@ -213,11 +214,11 @@
     </div>
 
     <div class="hand" role="group" aria-label="Your hand">
-      {#each view.you.hand as card (card.id)}
+      {#each view.you.hand as card, i (card.id)}
         <div
           class="handcard"
           animate:flip={{ duration: flipDur }}
-          in:dealIn
+          in:dealIn={{ index: i }}
         >
           <CardFace
             {card}
