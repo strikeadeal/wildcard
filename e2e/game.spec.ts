@@ -139,6 +139,57 @@ test('a guest joining after a host broker reconnect gets exactly one seat', asyn
   await guestCtx.close();
 });
 
+test('a guest can leave mid-game from the table and is dealt out at once', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guest, code, 'Gil');
+  await expectLobbyPlayer(host, 'Gil', 20_000);
+  await host.getByRole('button', { name: 'Start game' }).click();
+  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  await expect(host.locator('.seat').filter({ hasText: 'Gil' })).toBeVisible({ timeout: 20_000 });
+
+  await guest.getByRole('button', { name: 'Leave game' }).click();
+  const dialog = guest.getByRole('dialog', { name: 'Leave the game?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Leave game' }).click();
+
+  // The leaver is back on the home screen without a refresh…
+  await expect(guest.getByRole('button', { name: 'Create a room' })).toBeVisible({ timeout: 10_000 });
+  // …and the host sees them dealt out promptly — gone, not an "Away" ghost.
+  await expect(host.locator('.seat').filter({ hasText: 'Gil' })).toHaveCount(0, { timeout: 10_000 });
+
+  await hostCtx.close();
+  await guestCtx.close();
+});
+
+test('the host sees an end-game confirm on the table leave control', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guest, code, 'Gil');
+  await expectLobbyPlayer(host, 'Gil', 20_000);
+  await host.getByRole('button', { name: 'Start game' }).click();
+  await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+
+  await host.getByRole('button', { name: 'Leave game' }).click();
+  await expect(host.getByRole('dialog', { name: 'End the game?' })).toBeVisible();
+  await host.getByRole('button', { name: 'End game' }).click();
+  await expect(host.getByRole('button', { name: 'Create a room' })).toBeVisible({ timeout: 10_000 });
+
+  // The abandoned guest lands on the room-unavailable overlay, not a dead UI.
+  await expect(guest.getByRole('status')).toContainText('Room unavailable', { timeout: 30_000 });
+
+  await hostCtx.close();
+  await guestCtx.close();
+});
+
 test('house-rule toggles propagate to guests and the game runs with them on', async ({ browser }) => {
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();

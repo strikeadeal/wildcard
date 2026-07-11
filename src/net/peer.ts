@@ -140,7 +140,9 @@ function wrap(dc: DataConnection): Connection {
       onStat = cb;
       cb(status);
     },
-    close: () => dc.close()
+    // flush: parting messages (a guest's 'leave', the host's 'rejected')
+    // must reach the wire before the channel tears down.
+    close: () => dc.close({ flush: true })
   };
 }
 
@@ -158,6 +160,15 @@ export function hostRoom(
   return new Promise((resolve, reject) => {
     const peer = new Peer(codeToPeerId(code), peerOptions());
     let settled = false;
+    // peer.destroy() emits 'disconnected' BEFORE peer.destroyed flips true,
+    // so the keep-alive below would reconnect a peer that is being torn
+    // down — leaving a zombie registration that swallows future joins.
+    // Track destruction ourselves.
+    let destroyed = false;
+    const destroy = () => {
+      destroyed = true;
+      peer.destroy();
+    };
     // Registered once, outside 'open': PeerJS re-emits 'open' after every
     // broker reconnect, and a listener added per 'open' would attach each
     // future guest connection N times (duplicate seats, superseded rejoins).
@@ -168,19 +179,19 @@ export function hostRoom(
       if (settled) return; // reconnect re-emits 'open'
       settled = true;
       resolve({
-        destroy: () => peer.destroy(),
+        destroy,
         dropSignaling: () => peer.disconnect()
       });
     });
     // A broker drop after setup must not kill live games: established data
     // channels survive signaling loss. Reconnect so future joins still work.
     peer.on('disconnected', () => {
-      if (settled && !peer.destroyed) peer.reconnect();
+      if (settled && !destroyed && !peer.destroyed) peer.reconnect();
     });
     peer.on('error', (err) => {
       if (settled) return;
       const type = (err as { type?: string }).type;
-      peer.destroy();
+      destroy();
       reject(new Error(type === 'unavailable-id' ? 'code-taken' : 'network'));
     });
   });
@@ -191,22 +202,29 @@ export function joinRoom(code: string): Promise<{ conn: Connection; destroy(): v
     const peer = new Peer(peerOptions());
     let settled = false;
     let dialed = false;
+    // Same zombie-reconnect hazard as hostRoom: 'disconnected' fires during
+    // peer.destroy() while peer.destroyed is still false.
+    let destroyed = false;
+    const destroy = () => {
+      destroyed = true;
+      peer.destroy();
+    };
     peer.on('open', () => {
       if (dialed) return; // a broker reconnect re-emits 'open'; dial only once
       dialed = true;
       const dc = peer.connect(codeToPeerId(code), { reliable: true, serialization: 'json' });
       dc.on('open', () => {
         settled = true;
-        resolve({ conn: wrap(dc), destroy: () => peer.destroy() });
+        resolve({ conn: wrap(dc), destroy });
       });
     });
     peer.on('disconnected', () => {
-      if (settled && !peer.destroyed) peer.reconnect();
+      if (settled && !destroyed && !peer.destroyed) peer.reconnect();
     });
     peer.on('error', (err) => {
       if (settled) return;
       const type = (err as { type?: string }).type;
-      peer.destroy();
+      destroy();
       reject(new Error(type === 'peer-unavailable' ? 'not-found' : 'network'));
     });
   });

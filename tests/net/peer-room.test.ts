@@ -56,6 +56,9 @@ class FakePeer extends FakeEmitter {
     this.reconnectCalls++;
   }
   destroy(): void {
+    // Mirror PeerJS's real order: destroy() runs disconnect() first, which
+    // emits 'disconnected' while .destroyed is still false.
+    this.emit('disconnected');
     this.destroyed = true;
   }
 }
@@ -109,6 +112,31 @@ describe('hostRoom across broker reconnects', () => {
     expect(peer.disconnectCalls).toBe(1);
     expect(peer.destroyed).toBe(false);
     expect(peer.reconnectCalls).toBe(1); // the disconnected handler recovers
+  });
+});
+
+describe('destroy vs the keep-alive reconnect', () => {
+  it('hostRoom destroy does not zombie-reconnect off its own disconnected event', async () => {
+    const promise = hostRoom('AB2CD', () => {});
+    const peer = FakePeer.instances[0]!;
+    peer.emit('open');
+    const room = await promise;
+
+    room.destroy();
+    expect(peer.destroyed).toBe(true);
+    expect(peer.reconnectCalls).toBe(0); // a destroyed host must stay gone
+  });
+
+  it('joinRoom destroy does not zombie-reconnect off its own disconnected event', async () => {
+    const promise = joinRoom('AB2CD');
+    const peer = FakePeer.instances[0]!;
+    peer.emit('open');
+    peer.lastDialed!.emit('open');
+    const { destroy } = await promise;
+
+    destroy();
+    expect(peer.destroyed).toBe(true);
+    expect(peer.reconnectCalls).toBe(0);
   });
 });
 

@@ -55,6 +55,10 @@ export class HostSession {
         seat = this.handleHello(conn, msg.name, msg.token);
       } else if (msg.type === 'intent' && seat) {
         this.handleIntent(seat, msg.action);
+      } else if (msg.type === 'leave' && seat) {
+        // A deliberate exit: free the seat right away (and deal them out
+        // mid-game) instead of waiting for the transport to time out.
+        this.removeSeat(seat.id);
       }
     });
     conn.onClose(() => {

@@ -492,6 +492,13 @@ class Session {
 
   leave(): void {
     this.epoch++;
+    if (this.guest && this.roomCode) {
+      // Deliberate exit: the host frees the seat immediately, so the stored
+      // token now points at nothing — drop it or a later rejoin of the same
+      // room would be rejected with badToken instead of seated fresh.
+      this.guest.leave();
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(tokenKey(this.roomCode));
+    }
     this.destroyPeer?.();
     this.guest?.close();
     this.host = null;
