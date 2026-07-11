@@ -205,7 +205,7 @@ function winsIfEmpty(s: GameState, idx: number): boolean {
 function callUno(s: GameState, idx: number): ApplyResult {
   if (s.phase === 'roundEnd') return err('Round is over');
   const player = s.players[idx]!;
-  if (player.hand.length > 2) return err('You have too many cards to call');
+  if (player.saidUno) return err('You already called');
   player.saidUno = true;
   return done(s);
 }

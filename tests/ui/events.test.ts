@@ -121,6 +121,22 @@ describe('deriveViewChange — animation events', () => {
     expect(deriveViewChange(prev, next).event).toEqual({ kind: 'uno', playerId: 'p1', isYou: false });
   });
 
+  it('emits a uno event for a call at any hand size', () => {
+    const prev = view({
+      players: [
+        { id: 'p0', name: 'Ada', cardCount: 5, saidUno: false, connected: true, score: 0 },
+        { id: 'p1', name: 'Bob', cardCount: 5, saidUno: false, connected: true, score: 0 }
+      ]
+    });
+    const next = view({
+      players: [
+        { id: 'p0', name: 'Ada', cardCount: 5, saidUno: false, connected: true, score: 0 },
+        { id: 'p1', name: 'Bob', cardCount: 5, saidUno: true, connected: true, score: 0 }
+      ]
+    });
+    expect(deriveViewChange(prev, next).event).toEqual({ kind: 'uno', playerId: 'p1', isYou: false });
+  });
+
   it('emits a win event when the round ends, outranking a special final card', () => {
     const prev = view({ phase: 'play', discardTop: C('red', '5') });
     const next = view({ phase: 'roundEnd', roundWinner: 'p0', discardTop: C('red', 'skip') });

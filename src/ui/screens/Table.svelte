@@ -327,15 +327,15 @@
     <TurnPrompt {view} />
 
       <div class="actions">
+      <div class="contextual">
       {#if view.canChallenge}
         <button class:action-pending={session.pendingAction?.type === 'challengeWildFour'} disabled={recovering || actionPending} onclick={!recovering && !actionPending ? () => session.sendAction({ type: 'challengeWildFour' }) : undefined}>Challenge the +4</button>
       {/if}
       {#if view.canPass}
         <button class="ghost" class:action-pending={session.pendingAction?.type === 'passTurn'} disabled={recovering || actionPending} onclick={!recovering && !actionPending ? () => session.sendAction({ type: 'passTurn' }) : undefined}>Keep it</button>
       {/if}
-      {#if view.canCallUno}
-        <button class="lastcard" class:action-pending={session.pendingAction?.type === 'callUno'} disabled={recovering || actionPending} onclick={!recovering && !actionPending ? () => session.sendAction({ type: 'callUno' }) : undefined}>Last card!</button>
-      {/if}
+      </div>
+      <button class="uno-call" class:action-pending={session.pendingAction?.type === 'callUno'} disabled={recovering || actionPending || !view.canCallUno} onclick={!recovering && !actionPending && view.canCallUno ? () => session.sendAction({ type: 'callUno' }) : undefined}>UNO</button>
     </div>
 
     <div class="hand" role="group" aria-label="Your hand" use:anchor={'hand'}>
@@ -567,12 +567,15 @@
 
   .small { min-height: 44px; padding: 0 12px; font-size: 0.85rem; }
 
-  .actions { display: flex; justify-content: center; gap: 10px; min-height: 48px; flex-wrap: wrap; }
-  .lastcard {
+  /* The UNO button sits in a fixed right-hand cell so it never shifts when
+     the contextual buttons (challenge / keep it) come and go, and it carries
+     no eligibility styling — remembering to press it is the player's job. */
+  .actions { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; min-height: 48px; }
+  .contextual { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+  .uno-call {
     background: var(--card-yellow);
     color: var(--ink-yellow);
     font-weight: 800;
-    box-shadow: 0 0 20px rgb(245 197 66 / 0.4), 0 2px 0 rgb(0 0 0 / 0.25);
   }
   .actions .action-pending {
     opacity: 0.78;

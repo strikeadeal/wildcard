@@ -73,7 +73,7 @@ describe('GuestSession', () => {
     host.startGame();
     await flush();
     expect(events.onView).toHaveBeenCalled();
-    guest.send({ type: 'callUno' }); // almost surely illegal with 7 cards
+    guest.send({ type: 'catchUno', targetId: 'nobody' }); // deterministic error: no such player
     await flush();
     expect(events.onError).toHaveBeenCalled();
   });

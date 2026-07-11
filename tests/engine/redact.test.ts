@@ -52,6 +52,13 @@ describe('redact', () => {
     const s = fixedState([[card, C('blue', '4')], [C('green', '1')]], C('red', '5'));
     expect(redact(s, 'p0').canCallUno).toBe(true); // 2 cards
     expect(redact(s, 'p1').canCallUno).toBe(true); // 1 card, has not called
+    const big = fixedState(
+      [[C('red', '1'), C('blue', '4'), C('green', '9')], [C('green', '1')]],
+      C('red', '5')
+    );
+    expect(redact(big, 'p0').canCallUno).toBe(true); // any hand size may call
+    const calledEarly = ok(apply(big, 'p0', { type: 'callUno' }));
+    expect(redact(calledEarly, 'p0').canCallUno).toBe(false); // already called
     const played = ok(apply(s, 'p0', { type: 'playCard', cardId: card.id }));
     expect(redact(played, 'p1').catchableIds).toEqual(['p0']);
     // p1 has sat at one uncalled card since the deal, so p0 can catch them;

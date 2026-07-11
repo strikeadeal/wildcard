@@ -32,7 +32,7 @@ export function redact(state: GameState, playerId: string): PlayerView {
       state.phase === 'play' && myTurn &&
       state.pendingType === 'wild4' && state.pendingDraw === 4 &&
       state.wild4PlayedBy !== playerId,
-    canCallUno: state.phase !== 'roundEnd' && me.hand.length <= 2 && !me.saidUno,
+    canCallUno: state.phase !== 'roundEnd' && !me.saidUno,
     catchableIds: state.players
       .filter((p) => p.id !== playerId && p.hand.length === 1 && !p.saidUno)
       .map((p) => p.id),

@@ -25,7 +25,7 @@
       {player.cardCount}
     </span>
   {/key}
-  {#if player.saidUno && player.cardCount === 1}<span class="badge uno">Last card!</span>{/if}
+  {#if player.saidUno && player.cardCount === 1}<span class="badge uno">UNO!</span>{/if}
   {#if !player.connected}<span class="badge away">Away</span>{/if}
   {#if !player.connected && onremove}
     {#if isTurn && onskip}<button class="ghost small" onclick={onskip}>Skip once</button>{/if}
