@@ -119,9 +119,10 @@ function createAudioContext(): AudioContext | null {
 }
 
 /**
- * Registers a one-time gesture listener that lazily creates the
+ * Registers an app-shell gesture listener that lazily creates the
  * AudioContext — browsers block audio until a user gesture, so nothing
- * happens on load. Safe to call more than once; only the first call binds.
+ * happens on load. Safe to call more than once; only the first call binds,
+ * and the listener is removed even when audio initialization fails.
  */
 export function initFeedback(): void {
   if (gestureBound || typeof window === 'undefined') return;

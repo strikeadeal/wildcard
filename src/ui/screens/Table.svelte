@@ -17,7 +17,7 @@
   import { noticeToGameEvent } from '../public-notices';
   import { discardTilt } from '../discard-pile';
   import type { RecoveryState } from '../connection-state';
-  import { cueForNotice, initFeedback, isMuted, playCue, setMuted } from '../feedback';
+  import { cueForNotice, isMuted, playCue, setMuted } from '../feedback';
 
   const view = $derived(session.view);
   const recovery = $derived(session.recovery);
@@ -56,7 +56,6 @@
 
   // Haptics + synthesized sound. Kept as a separate effect (own last-id
   // latch) from the fx effect above so the two concerns never entangle.
-  initFeedback();
   let muted = $state(isMuted());
   let lastNoticeFeedbackId = $state(-1);
   $effect(() => {
