@@ -53,6 +53,16 @@ export class GuestSession {
     this.conn.send({ v: PROTOCOL_VERSION, type: 'intent', action });
   }
 
+  /** Deliberate exit: tell the host to free the seat now, then hang up. */
+  leave(): void {
+    try {
+      this.conn.send({ v: PROTOCOL_VERSION, type: 'leave' });
+    } catch {
+      // The channel may already be dead — leaving must never throw.
+    }
+    this.conn.close();
+  }
+
   close(): void {
     this.conn.close();
   }

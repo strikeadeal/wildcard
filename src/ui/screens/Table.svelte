@@ -134,12 +134,14 @@
 
   let pendingWild = $state<number | null>(null);
   let pendingRemove = $state<OpponentView | null>(null);
+  let pendingLeave = $state(false);
   let lastSelectionEpoch = $state(-1);
   $effect(() => {
     if (selectionEpoch === lastSelectionEpoch) return;
     lastSelectionEpoch = selectionEpoch;
     pendingWild = null;
     pendingRemove = null;
+    pendingLeave = false;
   });
   $effect(() => {
     if (!import.meta.env.DEV) return;
@@ -187,6 +189,19 @@
 
 {#if view}
   <div class="table" class:my-turn={myTurn}>
+    <button
+      type="button"
+      class="ghost leave-toggle"
+      aria-label="Leave game"
+      onclick={() => (pendingLeave = true)}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+      </svg>
+    </button>
     <button
       type="button"
       class="ghost mute-toggle"
@@ -343,6 +358,20 @@
   {#if view.phase === 'roundEnd'}
     <RoundEnd />
   {/if}
+  {#if pendingLeave}
+    <ConfirmDialog
+      title={session.isHost ? 'End the game?' : 'Leave the game?'}
+      body={session.isHost
+        ? 'Leaving closes the room for everyone.'
+        : 'Your cards are dealt out and the game continues without you.'}
+      confirmLabel={session.isHost ? 'End game' : 'Leave game'}
+      onconfirm={() => {
+        pendingLeave = false;
+        session.leave();
+      }}
+      oncancel={() => { pendingLeave = false; }}
+    />
+  {/if}
   {#if !recovering && pendingRemove}
     <ConfirmDialog
       title={`Remove ${pendingRemove.name}?`}
@@ -371,7 +400,7 @@
       calc(12px + var(--safe-left));
     gap: 6px;
   }
-  .mute-toggle {
+  .mute-toggle, .leave-toggle {
     position: absolute;
     top: calc(6px + var(--safe-top));
     right: calc(6px + var(--safe-right));
@@ -387,7 +416,11 @@
     justify-content: center;
     opacity: 0.75;
   }
-  .mute-toggle:hover:not(:disabled) { opacity: 1; }
+  .leave-toggle {
+    right: auto;
+    left: calc(6px + var(--safe-left));
+  }
+  .mute-toggle:hover:not(:disabled), .leave-toggle:hover:not(:disabled) { opacity: 1; }
   .table.my-turn .hand {
     outline: 1px solid rgb(230 184 75 / 0.45);
     box-shadow: 0 0 0 1px rgb(230 184 75 / 0.2) inset, 0 0 24px rgb(230 184 75 / 0.18);

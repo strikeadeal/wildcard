@@ -252,6 +252,42 @@ describe('HostSession', () => {
     expect(host.state!.players[1]!.connected).toBe(false);
   });
 
+  it('a leave message pre-game frees the seat immediately', async () => {
+    const a = new Wire(host);
+    a.hello('Ada');
+    await flush();
+    a.conn.send({ v: PROTOCOL_VERSION, type: 'leave' });
+    await flush();
+    expect(host.lobbyInfo().players.map((p) => p.id)).toEqual(['p0']);
+    expect(a.closed).toBe(true);
+    expect(events.lobbies[events.lobbies.length - 1]!.players).toHaveLength(1);
+  });
+
+  it('a leave message mid-game deals the player out and the game continues', async () => {
+    const a = new Wire(host);
+    const b = new Wire(host);
+    a.hello('Ada');
+    b.hello('Bob');
+    await flush();
+    host.startGame();
+    await flush();
+
+    a.conn.send({ v: PROTOCOL_VERSION, type: 'leave' });
+    await flush();
+    expect(host.state!.players.map((p) => p.id)).toEqual(['p0', 'p2']);
+    expect(a.closed).toBe(true);
+    // The remaining guest saw the departure via a fresh view.
+    expect(b.last('view')!.view.players.map((p) => p.id)).toEqual(['p0', 'p2']);
+  });
+
+  it('a leave message before hello is ignored', async () => {
+    const w = new Wire(host);
+    w.conn.send({ v: PROTOCOL_VERSION, type: 'leave' });
+    await flush();
+    expect(host.lobbyInfo().players).toHaveLength(1);
+    expect(w.closed).toBe(false);
+  });
+
   it('removeSeat before start drops the guest from the lobby and closes their wire', async () => {
     const a = new Wire(host);
     a.hello('Ada');

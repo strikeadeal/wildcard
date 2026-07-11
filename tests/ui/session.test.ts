@@ -130,6 +130,30 @@ describe('session notice handling', () => {
     expect(session.selectionEpoch).toBe(2);
   });
 
+  it('a deliberate leave notifies the host and forgets the dead seat token', () => {
+    storage.set('wildcard:token:KP4XQ', 'seat-token');
+    session.roomCode = 'KP4XQ';
+    session.isHost = false;
+    let leaves = 0;
+    (session as any).guest = { leave: () => leaves++, close: () => {}, send: () => {} };
+
+    session.leave();
+
+    expect(leaves).toBe(1); // the host is told to free the seat right away
+    expect(storage.has('wildcard:token:KP4XQ')).toBe(false);
+    expect(session.screen).toBe('home');
+  });
+
+  it('leave keeps the seat token when the connection is already gone', () => {
+    storage.set('wildcard:token:KP4XQ', 'seat-token');
+    session.roomCode = 'KP4XQ';
+    (session as any).guest = null; // e.g. Home pressed mid-reconnect
+
+    session.leave();
+
+    expect(storage.get('wildcard:token:KP4XQ')).toBe('seat-token');
+  });
+
   it('recomputes install eligibility when a captured prompt becomes returning-player eligible', () => {
     const installEvent = {
       preventDefault() {},

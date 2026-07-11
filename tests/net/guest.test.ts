@@ -106,6 +106,29 @@ describe('GuestSession', () => {
     expect(events2.onClosed).toHaveBeenCalled();
   });
 
+  it('leave tells the host to free the seat and hangs up', async () => {
+    const host = silentHost();
+    const [guestEnd, hostEnd] = createLoopbackPair();
+    host.attach(hostEnd);
+    const events = guestEvents();
+    const guest = new GuestSession(guestEnd, 'Ada', null, events);
+    await flush();
+    expect(host.lobbyInfo().players).toHaveLength(2);
+
+    guest.leave();
+    await flush();
+    expect(host.lobbyInfo().players.map((p) => p.id)).toEqual(['p0']);
+    expect(events.onClosed).toHaveBeenCalled();
+  });
+
+  it('leave does not throw when the connection is already closed', async () => {
+    const [guestEnd] = createLoopbackPair();
+    const guest = new GuestSession(guestEnd, 'Ada', null, guestEvents());
+    guestEnd.close();
+    await flush();
+    expect(() => guest.leave()).not.toThrow();
+  });
+
   it('forwards connection health updates', async () => {
     const [guestEnd] = createLoopbackPair();
     const events = guestEvents();

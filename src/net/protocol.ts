@@ -19,7 +19,8 @@ export interface LobbyInfo {
 
 export type ClientMsg =
   | { v: number; type: 'hello'; name: string; token: string | null }
-  | { v: number; type: 'intent'; action: Action };
+  | { v: number; type: 'intent'; action: Action }
+  | { v: number; type: 'leave' };
 
 export type ServerMsg =
   | { v: number; type: 'welcome'; playerId: string; token: string }
