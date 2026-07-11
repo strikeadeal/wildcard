@@ -192,6 +192,32 @@ describe('session notice handling', () => {
     expect(session.selectionEpoch).toBe(2);
   });
 
+  it('replays the same pending action and intent id after a recovered view', async () => {
+    delete (session as any).tryRejoinOnce;
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    const intents: any[] = [];
+    serverEnd.onMessage((message) => {
+      const msg = message as any;
+      if (msg.type === 'hello') {
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'welcome', playerId: 'p0', token: 'seat-token' });
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view() });
+      } else if (msg.type === 'intent') intents.push(msg);
+    });
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: guestEnd, destroy: () => {} });
+    storage.set('wildcard:token:KP4XQ', 'seat-token');
+    session.screen = 'game';
+    session.recovery = 'reconnecting';
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+    (session as any).pendingAction = {
+      type: 'drawCard', action: { type: 'drawCard' }, startedAt: Date.now(), intentId: 'stable-client-id'
+    };
+
+    expect(await (session as any).tryRejoinOnce()).toBe('joined');
+    await Promise.resolve();
+
+    expect(intents).toEqual([{ v: PROTOCOL_VERSION, type: 'intent', action: { type: 'drawCard' }, intentId: 'stable-client-id' }]);
+  });
+
   it('a deliberate leave notifies the host and forgets the dead seat token', () => {
     storage.set('wildcard:token:KP4XQ', 'seat-token');
     session.roomCode = 'KP4XQ';

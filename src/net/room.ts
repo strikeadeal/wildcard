@@ -13,11 +13,15 @@ interface SeatRecord {
   name: string;
   token: string;
   conn: Connection | null; // null: a disconnected player
+  lastIntent?: { id: string; outcome: 'success' } | { id: string; outcome: 'error'; message: string };
 }
 
 /** Everything a room needs to survive hibernation/eviction (no live conns). */
 export interface RoomSnapshot {
-  seats: Array<{ id: string; name: string; token: string }>;
+  seats: Array<{
+    id: string; name: string; token: string;
+    lastIntent?: { id: string; outcome: 'success' } | { id: string; outcome: 'error'; message: string };
+  }>;
   nextSeat: number;
   nextNoticeId: number;
   config: RuleConfig;
@@ -54,7 +58,7 @@ export class RoomSession {
 
   snapshot(): RoomSnapshot {
     return {
-      seats: this.seats.map(({ id, name, token }) => ({ id, name, token })),
+      seats: this.seats.map(({ id, name, token, lastIntent }) => ({ id, name, token, lastIntent })),
       nextSeat: this.nextSeat,
       nextNoticeId: this.nextNoticeId,
       config: this.config,
@@ -221,22 +225,30 @@ export class RoomSession {
     conn.close();
   }
 
-  private validIntentId(value: unknown): number | undefined {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  private validIntentId(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 && value.length <= 128 ? value : undefined;
   }
 
-  private handleIntent(seat: SeatRecord, action: Action, intentId?: number): void {
+  private handleIntent(seat: SeatRecord, action: Action, intentId?: string): void {
+    if (intentId && seat.lastIntent?.id === intentId) {
+      if (seat.lastIntent.outcome === 'error') this.errorTo(seat, seat.lastIntent.message, intentId);
+      else this.viewTo(seat, intentId);
+      return;
+    }
     if (!this.state) {
+      if (intentId) seat.lastIntent = { id: intentId, outcome: 'error', message: 'The game has not started yet' };
       this.errorTo(seat, 'The game has not started yet', intentId);
       return;
     }
     const before = this.state;
     const result = apply(before, seat.id, action);
     if (!result.ok) {
+      if (intentId) seat.lastIntent = { id: intentId, outcome: 'error', message: result.error };
       this.errorTo(seat, result.error, intentId);
       return;
     }
     this.state = result.state;
+    if (intentId) seat.lastIntent = { id: intentId, outcome: 'success' };
     const notices = this.makeNotices(before, seat.id, action);
     this.lastNotices = notices;
     this.broadcastViews(notices, seat.id, intentId);
@@ -386,8 +398,14 @@ export class RoomSession {
     }
   }
 
-  private errorTo(seat: SeatRecord, message: string, intentId?: number): void {
+  private errorTo(seat: SeatRecord, message: string, intentId?: string): void {
     if (seat.conn) this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'error', message, intentId });
+  }
+
+  private viewTo(seat: SeatRecord, intentId: string): void {
+    if (seat.conn && this.state && playerIndex(this.state, seat.id) !== -1) {
+      this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'view', view: redact(this.state, seat.id), intentId });
+    }
   }
 
   private broadcastLobby(): void {
@@ -397,7 +415,7 @@ export class RoomSession {
     }
   }
 
-  private broadcastViews(notices: PublicNotice[] = [], actorId?: string, intentId?: number): void {
+  private broadcastViews(notices: PublicNotice[] = [], actorId?: string, intentId?: string): void {
     if (!this.state) return;
     for (const seat of this.seats) {
       if (seat.conn && playerIndex(this.state, seat.id) !== -1) {

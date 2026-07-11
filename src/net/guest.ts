@@ -6,9 +6,9 @@ import type { Connection, ConnectionHealth } from './transport';
 export interface GuestEvents {
   onWelcome(playerId: string, token: string): void;
   onLobby(lobby: import('./protocol').LobbyInfo): void;
-  onView(view: import('../engine/types').PlayerView, notices?: PublicNotice[], intentId?: number): void;
+  onView(view: import('../engine/types').PlayerView, notices?: PublicNotice[], intentId?: string): void;
   onRejected(reason: RejectReason): void;
-  onError(message: string, intentId?: number): void;
+  onError(message: string, intentId?: string): void;
   onClosed(): void;
   onRoomClosed(): void;
   onConnectionStatus(status: ConnectionHealth): void;
@@ -55,7 +55,7 @@ export class GuestSession {
     conn.send({ v: PROTOCOL_VERSION, type: 'hello', name, token, create });
   }
 
-  send(action: Action, intentId?: number): void {
+  send(action: Action, intentId?: string): void {
     this.sendMsg({ v: PROTOCOL_VERSION, type: 'intent', action, intentId });
   }
 

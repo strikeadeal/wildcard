@@ -84,12 +84,12 @@ describe('GuestSession', () => {
     new GuestSession(guestEnd, 'Ada', null, false, events);
     await flush();
 
-    roomEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: {} as any, intentId: 7 });
-    roomEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Nope', intentId: 8 });
+    roomEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: {} as any, intentId: 'seven' });
+    roomEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Nope', intentId: 'eight' });
     await flush();
 
-    expect(events.onView).toHaveBeenCalledWith({}, undefined, 7);
-    expect(events.onError).toHaveBeenCalledWith('Nope', 8);
+    expect(events.onView).toHaveBeenCalledWith({}, undefined, 'seven');
+    expect(events.onError).toHaveBeenCalledWith('Nope', 'eight');
   });
 
   it('passes optional notices through onView', async () => {

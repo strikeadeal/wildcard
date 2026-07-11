@@ -57,8 +57,7 @@ class Session {
   roomCode = $state<string | null>(null);
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
-  pendingAction = $state<{ type: Action['type']; startedAt: number; intentId: number } | null>(null);
-  private nextIntentId = 1;
+  pendingAction = $state<{ type: Action['type']; action: Action; startedAt: number; intentId: string } | null>(null);
   toast = $state<string | null>(null);
   noticeHistory = $state<PublicNotice[]>([]);
   noticeQueue = $state<PublicNotice[]>([]);
@@ -173,7 +172,7 @@ class Session {
    * queue/history state when present; otherwise older hosts still fall back to
    * deriving animation changes by diffing consecutive views.
    */
-  private handleView(view: PlayerView, notices: PublicNotice[] = [], intentId?: number): void {
+  private handleView(view: PlayerView, notices: PublicNotice[] = [], intentId?: string): void {
     if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
       this.markReturningPlayer();
@@ -212,7 +211,7 @@ class Session {
     }
   }
 
-  private handleGuestError(message: string, intentId?: number): void {
+  private handleGuestError(message: string, intentId?: string): void {
     if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
     this.showToast(message);
   }
@@ -275,6 +274,7 @@ class Session {
         let nextPlayerId: string | null = null;
         let nextToken: string | null = token;
         let candidate: GuestSession | null = null;
+        let replayedPending = false;
         const dispose = () => {
           candidate?.close();
           destroy();
@@ -312,6 +312,10 @@ class Session {
           },
           onView: (view, notices, intentId) => {
             if (!adopt()) return;
+            if (!replayedPending && this.pendingAction && intentId === undefined) {
+              replayedPending = true;
+              candidate!.send(this.pendingAction.action, this.pendingAction.intentId);
+            }
             this.handleView(view, notices, intentId);
             finish('joined');
           },
@@ -523,8 +527,8 @@ class Session {
 
   sendAction(action: Action): boolean {
     if (this.pendingAction || !this.guest) return false;
-    const intentId = this.nextIntentId++;
-    this.pendingAction = { type: action.type, startedAt: Date.now(), intentId };
+    const intentId = crypto.randomUUID();
+    this.pendingAction = { type: action.type, action, startedAt: Date.now(), intentId };
     this.guest.send(action, intentId);
     return true;
   }
