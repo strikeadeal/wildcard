@@ -1,7 +1,13 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PlayerView } from '../../src/engine/types';
+import { PROTOCOL_VERSION } from '../../src/net/protocol';
+import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { C } from '../engine/fixtures';
 import { session } from '../../src/ui/session.svelte';
+
+const socketMocks = vi.hoisted(() => ({ connectRoom: vi.fn() }));
+
+vi.mock('../../src/net/socket', () => ({ connectRoom: socketMocks.connectRoom }));
 
 function view(over: Partial<PlayerView> = {}): PlayerView {
   return {
@@ -84,22 +90,34 @@ describe('session notice handling', () => {
     expect(session.lastPlayFromSelf).toBe(false);
   });
 
-  it('tracks an action until the server responds with a view or error', () => {
-    const sent: unknown[] = [];
-    (session as any).guest = { send: (action: unknown) => sent.push(action), close: () => {} };
+  it('tracks an action synchronously until the server responds with a view or error', async () => {
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    const pendingDuringSend: Array<typeof session.pendingAction> = [];
+    const inspectingGuestEnd: Connection = {
+      ...guestEnd,
+      send(message: unknown) {
+        if ((message as { type?: string }).type === 'intent') {
+          pendingDuringSend.push(session.pendingAction);
+        }
+        guestEnd.send(message);
+      }
+    };
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: inspectingGuestEnd, destroy: () => {} });
+    await session.joinRoom('KP4XQ', 'Ada');
     const action = { type: 'drawCard' } as const;
 
     session.sendAction(action);
 
-    expect(sent).toEqual([action]);
-    expect(session.pendingAction?.type).toBe('drawCard');
-    expect(session.pendingAction?.startedAt).toEqual(expect.any(Number));
+    expect(pendingDuringSend[0]?.type).toBe('drawCard');
+    expect(pendingDuringSend[0]?.startedAt).toEqual(expect.any(Number));
 
-    (session as any).handleView(view());
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view() });
+    await Promise.resolve();
     expect(session.pendingAction).toBeNull();
 
     session.sendAction(action);
-    (session as any).handleGuestError('Action rejected');
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Action rejected' });
+    await Promise.resolve();
     expect(session.pendingAction).toBeNull();
   });
 
