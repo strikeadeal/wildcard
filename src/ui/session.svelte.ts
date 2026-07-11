@@ -57,6 +57,7 @@ class Session {
   roomCode = $state<string | null>(null);
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
+  pendingAction = $state<{ type: Action['type']; action: Action; startedAt: number; intentId: string } | null>(null);
   toast = $state<string | null>(null);
   noticeHistory = $state<PublicNotice[]>([]);
   noticeQueue = $state<PublicNotice[]>([]);
@@ -171,7 +172,8 @@ class Session {
    * queue/history state when present; otherwise older hosts still fall back to
    * deriving animation changes by diffing consecutive views.
    */
-  private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
+  private handleView(view: PlayerView, notices: PublicNotice[] = [], intentId?: string): void {
+    if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
       this.markReturningPlayer();
     }
@@ -207,6 +209,11 @@ class Session {
     } else if (status === 'connected' && this.recovery === 'unstable') {
       this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
     }
+  }
+
+  private handleGuestError(message: string, intentId?: string): void {
+    if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
+    this.showToast(message);
   }
 
   private handleGuestClosed(): void {
@@ -267,6 +274,7 @@ class Session {
         let nextPlayerId: string | null = null;
         let nextToken: string | null = token;
         let candidate: GuestSession | null = null;
+        let replayedPending = false;
         const dispose = () => {
           candidate?.close();
           destroy();
@@ -302,9 +310,13 @@ class Session {
             this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
             finish('joined');
           },
-          onView: (view, notices) => {
+          onView: (view, notices, intentId) => {
             if (!adopt()) return;
-            this.handleView(view, notices);
+            if (!replayedPending && this.pendingAction && intentId === undefined) {
+              replayedPending = true;
+              candidate!.send(this.pendingAction.action, this.pendingAction.intentId);
+            }
+            this.handleView(view, notices, intentId);
             finish('joined');
           },
           onRejected: (reason) => {
@@ -322,7 +334,9 @@ class Session {
             }
             finish('networkFailed');
           },
-          onError: () => {},
+          onError: (_message, intentId) => {
+            if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
+          },
           onClosed: () => finish('networkFailed'),
           onRoomClosed: () => finish('roomMissing'),
           onConnectionStatus: () => {}
@@ -411,9 +425,9 @@ class Session {
             this.screen = 'lobby';
             finish('created');
           },
-          onView: (view, notices) => this.handleView(view, notices),
+          onView: (view, notices, intentId) => this.handleView(view, notices, intentId),
           onRejected: (reason) => finish(reason === 'codeTaken' ? 'codeTaken' : 'failed'),
-          onError: (message) => this.showToast(message),
+          onError: (message, intentId) => this.handleGuestError(message, intentId),
           onClosed: () => {
             if (settled) this.handleGuestClosed();
             else finish('failed');
@@ -460,14 +474,14 @@ class Session {
           this.lobby = lobby;
           this.screen = 'lobby';
         },
-        onView: (view, notices) => this.handleView(view, notices),
+        onView: (view, notices, intentId) => this.handleView(view, notices, intentId),
         onRejected: (reason) => {
           if (typeof localStorage !== 'undefined' && (reason === 'badToken' || reason === 'notFound')) {
             localStorage.removeItem(tokenKey(code));
           }
           this.fail(fatalFromRejection(reason));
         },
-        onError: (message) => this.showToast(message),
+        onError: (message, intentId) => this.handleGuestError(message, intentId),
         onClosed: () => this.handleGuestClosed(),
         onRoomClosed: () => this.handleRoomClosed(),
         onConnectionStatus: (status) => this.handleGuestStatus(status)
@@ -511,8 +525,12 @@ class Session {
     void this.createRoom(name);
   }
 
-  sendAction(action: Action): void {
-    this.guest?.send(action);
+  sendAction(action: Action): boolean {
+    if (this.pendingAction || !this.guest) return false;
+    const intentId = crypto.randomUUID();
+    this.pendingAction = { type: action.type, action, startedAt: Date.now(), intentId };
+    this.guest.send(action, intentId);
+    return true;
   }
 
   startGame(): void {
@@ -556,6 +574,7 @@ class Session {
     this.roomCode = null;
     this.lobby = null;
     this.view = null;
+    this.pendingAction = null;
     this.noticeHistory = [];
     this.noticeQueue = [];
     this.fxEvent = null;

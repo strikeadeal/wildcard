@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { OpponentView } from '../../engine/types';
 
-  let { players, onpick }: {
+  let { players, disabled = false, onpick }: {
     players: OpponentView[];
+    disabled?: boolean;
     onpick: (id: string) => void;
   } = $props();
 </script>
@@ -12,7 +13,7 @@
     <p>You played a 7 — swap hands with…</p>
     <div class="list">
       {#each players as p (p.id)}
-        <button onclick={() => onpick(p.id)}>
+        <button {disabled} onclick={() => onpick(p.id)}>
           <span>{p.name}</span>
           <span class="count">{p.cardCount} cards</span>
         </button>

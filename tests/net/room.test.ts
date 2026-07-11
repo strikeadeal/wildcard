@@ -203,6 +203,77 @@ describe('RoomSession', () => {
     expect(host.last('view')?.notices?.every((n) => Number.isInteger(n.id))).toBe(true);
   });
 
+  it('acknowledges an intent only on the acting player response', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    host.cmd({ type: 'start' });
+    await flush();
+    room.state = fixedTwoPlayerState();
+
+    a.cmd({ type: 'intent', action: { type: 'playCard', cardId: 9001 }, intentId: 'intent-41' });
+    await flush();
+
+    expect(a.last('view')?.intentId).toBe('intent-41');
+    expect(host.last('view')?.intentId).toBeUndefined();
+  });
+
+  it('echoes an intent id on an action error and accepts legacy intents without one', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    host.cmd({ type: 'start' });
+    await flush();
+
+    a.cmd({ type: 'intent', action: { type: 'callUno' }, intentId: 'intent-42' });
+    await flush();
+    expect(a.last('error')?.intentId).toBe('intent-42');
+
+    expect(() => a.cmd({ type: 'intent', action: { type: 'callUno' } })).not.toThrow();
+  });
+
+  it('replays a successful acknowledgement without applying the action twice', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    host.cmd({ type: 'start' });
+    await flush();
+    room.state = fixedTwoPlayerState();
+    const msg = { type: 'intent', action: { type: 'playCard', cardId: 9001 }, intentId: 'stable-success' };
+
+    a.cmd(msg);
+    await flush();
+    const applied = structuredClone(room.state);
+    a.cmd(msg);
+    await flush();
+
+    expect(room.state).toEqual(applied);
+    expect(a.last('view')?.intentId).toBe('stable-success');
+  });
+
+  it('replays a cached error and persists dedupe outcome through snapshot restore', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    const token = a.last('welcome')!.token;
+    host.cmd({ type: 'start' });
+    await flush();
+    a.cmd({ type: 'intent', action: { type: 'callUno' }, intentId: 'stable-error' });
+    await flush();
+
+    const woken = RoomSession.restore(structuredClone(room.snapshot()));
+    const replay = reattachedWire(woken, token);
+    replay.conn.send({ v: PROTOCOL_VERSION, type: 'intent', action: { type: 'drawCard' }, intentId: 'stable-error' });
+    await flush();
+
+    expect(replay.last('error')?.intentId).toBe('stable-error');
+    expect(replay.last('error')?.message).toBe(a.last('error')?.message);
+  });
+
   it('marks disconnects and restores a seat on token rejoin', async () => {
     const host = await createdRoom(room);
     const a = new Wire(room);

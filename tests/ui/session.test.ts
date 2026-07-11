@@ -1,7 +1,13 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PlayerView } from '../../src/engine/types';
+import { PROTOCOL_VERSION } from '../../src/net/protocol';
+import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { C } from '../engine/fixtures';
 import { session } from '../../src/ui/session.svelte';
+
+const socketMocks = vi.hoisted(() => ({ connectRoom: vi.fn() }));
+
+vi.mock('../../src/net/socket', () => ({ connectRoom: socketMocks.connectRoom }));
 
 function view(over: Partial<PlayerView> = {}): PlayerView {
   return {
@@ -84,6 +90,62 @@ describe('session notice handling', () => {
     expect(session.lastPlayFromSelf).toBe(false);
   });
 
+  it('suppresses duplicate actions while one is pending', async () => {
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    const pendingDuringSend: Array<typeof session.pendingAction> = [];
+    const inspectingGuestEnd: Connection = {
+      ...guestEnd,
+      send(message: unknown) {
+        if ((message as { type?: string }).type === 'intent') {
+          pendingDuringSend.push(session.pendingAction);
+        }
+        guestEnd.send(message);
+      }
+    };
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: inspectingGuestEnd, destroy: () => {} });
+    await session.joinRoom('KP4XQ', 'Ada');
+    const action = { type: 'nextRound' } as const;
+
+    expect(session.sendAction(action)).toBe(true);
+    expect(session.sendAction(action)).toBe(false);
+
+    expect(pendingDuringSend).toHaveLength(1);
+    expect(pendingDuringSend[0]?.type).toBe('nextRound');
+    expect(pendingDuringSend[0]?.startedAt).toEqual(expect.any(Number));
+
+    const intentId = session.pendingAction!.intentId;
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view(), intentId });
+    await Promise.resolve();
+    expect(session.pendingAction).toBeNull();
+
+    session.sendAction(action);
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Action rejected', intentId: session.pendingAction!.intentId });
+    await Promise.resolve();
+    expect(session.pendingAction).toBeNull();
+  });
+
+  it('keeps an action pending through unrelated views until its matching acknowledgement', async () => {
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: guestEnd, destroy: () => {} });
+    await session.joinRoom('KP4XQ', 'Ada');
+
+    session.sendAction({ type: 'drawCard' });
+    const intentId = session.pendingAction!.intentId;
+
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view({ turnPlayerId: 'p1' }) });
+    await Promise.resolve();
+    expect(session.pendingAction?.intentId).toBe(intentId);
+
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view(), intentId });
+    await Promise.resolve();
+    expect(session.pendingAction).toBeNull();
+  });
+
+  it('does not create pending state when no guest is connected', () => {
+    expect(session.sendAction({ type: 'nextRound' })).toBe(false);
+    expect(session.pendingAction).toBeNull();
+  });
+
   it('queues a fresh transported notice as the current announcement', () => {
     (session as any).view = view({ discardTop: C('red', '5'), turnPlayerId: 'p0' });
     session.noticeHistory = [];
@@ -128,6 +190,32 @@ describe('session notice handling', () => {
     (session as any).handleView(view({ discardTop: C('blue', '7') }));
     expect(session.recovery).toBe('idle');
     expect(session.selectionEpoch).toBe(2);
+  });
+
+  it('replays the same pending action and intent id after a recovered view', async () => {
+    delete (session as any).tryRejoinOnce;
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    const intents: any[] = [];
+    serverEnd.onMessage((message) => {
+      const msg = message as any;
+      if (msg.type === 'hello') {
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'welcome', playerId: 'p0', token: 'seat-token' });
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view() });
+      } else if (msg.type === 'intent') intents.push(msg);
+    });
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: guestEnd, destroy: () => {} });
+    storage.set('wildcard:token:KP4XQ', 'seat-token');
+    session.screen = 'game';
+    session.recovery = 'reconnecting';
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+    (session as any).pendingAction = {
+      type: 'drawCard', action: { type: 'drawCard' }, startedAt: Date.now(), intentId: 'stable-client-id'
+    };
+
+    expect(await (session as any).tryRejoinOnce()).toBe('joined');
+    await Promise.resolve();
+
+    expect(intents).toEqual([{ v: PROTOCOL_VERSION, type: 'intent', action: { type: 'drawCard' }, intentId: 'stable-client-id' }]);
   });
 
   it('a deliberate leave notifies the host and forgets the dead seat token', () => {

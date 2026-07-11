@@ -27,7 +27,7 @@ export type RejectReason =
 
 export type ClientMsg =
   | { v: number; type: 'hello'; name: string; token: string | null; create: boolean }
-  | { v: number; type: 'intent'; action: Action }
+  | { v: number; type: 'intent'; action: Action; intentId?: string }
   | { v: number; type: 'leave' }
   // Host-only commands (seat p0); the room rejects them from anyone else.
   | { v: number; type: 'config'; config: RuleConfig }
@@ -39,7 +39,7 @@ export type ServerMsg =
   | { v: number; type: 'welcome'; playerId: string; token: string }
   | { v: number; type: 'rejected'; reason: RejectReason }
   | { v: number; type: 'lobby'; lobby: LobbyInfo }
-  | { v: number; type: 'view'; view: PlayerView; notices?: PublicNotice[] }
-  | { v: number; type: 'error'; message: string }
+  | { v: number; type: 'view'; view: PlayerView; notices?: PublicNotice[]; intentId?: string }
+  | { v: number; type: 'error'; message: string; intentId?: string }
   // The room is gone for everyone (the host ended it).
   | { v: number; type: 'closed'; reason: 'hostLeft' };

@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { Card } from '../../engine/types';
 
-  let { card = null, facedown = false, playable = false, onclick }: {
+  let { card = null, facedown = false, playable = false, pending = false, onclick }: {
     card?: Card | null;
     facedown?: boolean;
     playable?: boolean;
+    pending?: boolean;
     onclick?: () => void;
   } = $props();
 
@@ -37,6 +38,7 @@
 <button
   class="card {colorClass}"
   class:playable
+  class:action-pending={pending}
   class:symbol={isSymbol}
   disabled={!onclick}
   {onclick}
@@ -148,4 +150,12 @@
     cursor: pointer;
   }
   .playable:active { transform: translateY(-6px); }
+  .action-pending {
+    transform: translateY(-6px) scale(0.98);
+    box-shadow: 0 8px 16px rgb(0 0 0 / 0.45), 0 0 0 4px var(--brass);
+    animation: action-pending-pulse 480ms ease-in-out infinite alternate;
+  }
+  @keyframes action-pending-pulse {
+    to { opacity: 0.78; box-shadow: 0 8px 16px rgb(0 0 0 / 0.45), 0 0 0 5px rgb(230 184 75 / 0.65); }
+  }
 </style>

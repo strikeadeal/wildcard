@@ -6,6 +6,7 @@
   import Fatal from './screens/Fatal.svelte';
   import Lobby from './screens/Lobby.svelte';
   import Table from './screens/Table.svelte';
+  import { initFeedback } from './feedback';
 
   function confirmLeave(e: BeforeUnloadEvent) {
     if (session.gameLive) e.preventDefault();
@@ -20,6 +21,10 @@
         delete (window as any).__wildcardTest.dropConnection;
       }
     };
+  });
+
+  onMount(() => {
+    initFeedback();
   });
 
   onMount(() => {

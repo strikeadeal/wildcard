@@ -2,7 +2,7 @@
   import type { Color } from '../../engine/types';
   import { COLORS } from '../../engine/deck';
 
-  let { onpick }: { onpick: (color: Color) => void } = $props();
+  let { disabled = false, onpick }: { disabled?: boolean; onpick: (color: Color) => void } = $props();
 </script>
 
 <div class="overlay" role="dialog" aria-label="Pick a color">
@@ -10,7 +10,7 @@
     <p>Pick a color</p>
     <div class="swatches">
       {#each COLORS as color (color)}
-        <button class={color} onclick={() => onpick(color)} aria-label={color}>
+        <button class={color} {disabled} onclick={() => onpick(color)} aria-label={color}>
           <span class="ring"></span>
         </button>
       {/each}

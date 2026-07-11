@@ -6,9 +6,9 @@ import type { Connection, ConnectionHealth } from './transport';
 export interface GuestEvents {
   onWelcome(playerId: string, token: string): void;
   onLobby(lobby: import('./protocol').LobbyInfo): void;
-  onView(view: import('../engine/types').PlayerView, notices?: PublicNotice[]): void;
+  onView(view: import('../engine/types').PlayerView, notices?: PublicNotice[], intentId?: string): void;
   onRejected(reason: RejectReason): void;
-  onError(message: string): void;
+  onError(message: string, intentId?: string): void;
   onClosed(): void;
   onRoomClosed(): void;
   onConnectionStatus(status: ConnectionHealth): void;
@@ -37,13 +37,13 @@ export class GuestSession {
           events.onLobby(msg.lobby);
           break;
         case 'view':
-          events.onView(msg.view, msg.notices);
+          events.onView(msg.view, msg.notices, msg.intentId);
           break;
         case 'rejected':
           events.onRejected(msg.reason);
           break;
         case 'error':
-          events.onError(msg.message);
+          events.onError(msg.message, msg.intentId);
           break;
         case 'closed':
           events.onRoomClosed();
@@ -55,8 +55,8 @@ export class GuestSession {
     conn.send({ v: PROTOCOL_VERSION, type: 'hello', name, token, create });
   }
 
-  send(action: Action): void {
-    this.sendMsg({ v: PROTOCOL_VERSION, type: 'intent', action });
+  send(action: Action, intentId?: string): void {
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'intent', action, intentId });
   }
 
   // Host commands — the room enforces that only seat p0 may issue these.
