@@ -114,7 +114,7 @@ describe('session notice handling', () => {
   it('bumps selectionEpoch when recovery starts and when a recovered view arrives', () => {
     (session as any).view = view({ discardTop: C('red', '5') });
     session.screen = 'game';
-    session.isHost = false;
+    session.playerId = 'p1';
     session.recovery = 'idle';
     session.selectionEpoch = 0;
     (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
@@ -133,7 +133,7 @@ describe('session notice handling', () => {
   it('a deliberate leave notifies the host and forgets the dead seat token', () => {
     storage.set('wildcard:token:KP4XQ', 'seat-token');
     session.roomCode = 'KP4XQ';
-    session.isHost = false;
+    session.playerId = 'p1';
     let leaves = 0;
     (session as any).guest = { leave: () => leaves++, close: () => {}, send: () => {} };
 

@@ -2,9 +2,10 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_TURN_URLS?: string;
-  readonly VITE_TURN_USERNAME?: string;
-  readonly VITE_TURN_CREDENTIAL?: string;
+  /** WebSocket base URL of the deployed wildcard-api Worker (wss://…). */
+  readonly VITE_WS_URL?: string;
+  /** Deterministic deal seed — set by dev/e2e tooling only. */
+  readonly VITE_GAME_SEED?: string;
 }
 
 interface ImportMeta {

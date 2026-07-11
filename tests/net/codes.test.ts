@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { codeToPeerId, newRoomCode, normalizeCode, validateCode, CODE_ALPHABET } from '../../src/net/codes';
+import { newRoomCode, normalizeCode, validateCode, CODE_ALPHABET } from '../../src/net/codes';
 import { rng } from '../../src/engine/deck';
 
 describe('room codes', () => {
@@ -23,10 +23,6 @@ describe('room codes', () => {
     expect(normalizeCode('AB1OE')).toBeNull(); // 1 and O are not in the alphabet
     // full join-link paste also works
     expect(normalizeCode('https://x.github.io/uno/#/join/ABCDE')).toBe('ABCDE');
-  });
-
-  it('maps codes to namespaced peer ids', () => {
-    expect(codeToPeerId('ABCDE')).toBe('wildcard-ABCDE');
   });
 
   it('returns a field-friendly reason for malformed codes', () => {

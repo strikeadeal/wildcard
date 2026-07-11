@@ -1,6 +1,8 @@
 <script lang="ts">
   import { session } from '../session.svelte';
   import RuleToggles from '../components/RuleToggles.svelte';
+  import ReconnectOverlay from '../components/ReconnectOverlay.svelte';
+  import type { RecoveryState } from '../connection-state';
 
   const lobby = $derived(session.lobby);
   const canStart = $derived(session.lobby?.canStart ?? false);
@@ -75,6 +77,10 @@
     <button class="ghost" onclick={() => session.leave()}>Leave room</button>
   </div>
 </main>
+
+{#if session.recovery !== 'idle'}
+  <ReconnectOverlay state={session.recovery as RecoveryState} />
+{/if}
 
 <style>
   main {

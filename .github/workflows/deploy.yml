@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy
 on:
   push:
     branches: [main]
@@ -10,7 +10,7 @@ concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
-  build:
+  deploy-worker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,23 +20,32 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Validate production TURN settings
+      - name: Deploy Worker + Durable Object to Cloudflare
+        run: npx wrangler deploy --config worker/wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+  build:
+    needs: deploy-worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate game-service URL
         shell: bash
         run: |
           set -euo pipefail
-          [ -n "${VITE_TURN_URLS}" ] || { echo "::error::VITE_TURN_URLS is empty"; exit 1; }
-          [ -n "${VITE_TURN_USERNAME}" ] || { echo "::error::VITE_TURN_USERNAME is empty"; exit 1; }
-          [ -n "${VITE_TURN_CREDENTIAL}" ] || { echo "::error::VITE_TURN_CREDENTIAL is empty"; exit 1; }
+          [ -n "${VITE_WS_URL}" ] || { echo "::error::VITE_WS_URL is empty — set the repo variable to the deployed worker URL (wss://…)"; exit 1; }
         env:
-          VITE_TURN_URLS: ${{ vars.VITE_TURN_URLS }}
-          VITE_TURN_USERNAME: ${{ vars.VITE_TURN_USERNAME }}
-          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
-      - name: Build with production TURN fallback
+          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
+      - name: Build with the production game-service URL
         run: npm run build
         env:
-          VITE_TURN_URLS: ${{ vars.VITE_TURN_URLS }}
-          VITE_TURN_USERNAME: ${{ vars.VITE_TURN_USERNAME }}
-          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
+          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -1,4 +1,5 @@
-/** Minimal duplex message channel. PeerJS DataConnection adapts to this (Task 10). */
+/** Minimal duplex message channel. Both the browser WebSocket (src/net/socket.ts)
+ * and the RoomDO's hibernated sockets (worker/src/room-do.ts) adapt to this. */
 export type ConnectionHealth = 'connecting' | 'connected' | 'unstable' | 'closed';
 
 export interface Connection {
