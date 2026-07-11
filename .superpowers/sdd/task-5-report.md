@@ -52,4 +52,5 @@ once under degraded network. This work cannot be certified without the device.
 - The measurement harness selected playable cards in these randomized games;
   the existing full E2E suite covers draw-pile pending behavior, but physical
   acceptance must explicitly measure both card and draw taps.
-- Documentation commit SHA will be recorded after the commit is created.
+- Measurement/documentation evidence commit: `fc3f755` (`docs: record mobile
+  input latency verification`).
