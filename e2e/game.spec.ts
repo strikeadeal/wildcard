@@ -9,14 +9,24 @@ async function openPendingWildPicker(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__wildcardTest.openPendingWildPicker());
 }
 
+async function forcePendingAction(page: Page, type: 'chooseColor' | 'chooseSwapTarget'): Promise<void> {
+  await page.evaluate((actionType) => (window as any).__wildcardTest.forcePendingAction(actionType), type);
+}
+
 async function installInboundMessageHold(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const NativeWebSocket = window.WebSocket;
     let holding = false;
     const queued: Array<() => void> = [];
+    let sentIntents = 0;
     class TestWebSocket extends NativeWebSocket {
       constructor(url: string | URL, protocols?: string | string[]) {
         super(url, protocols);
+        const nativeSend = this.send.bind(this);
+        this.send = (data) => {
+          if (typeof data === 'string' && data.includes('"type":"intent"')) sentIntents++;
+          nativeSend(data);
+        };
         let handler: ((this: WebSocket, ev: MessageEvent) => any) | null = null;
         Object.defineProperty(this, 'onmessage', {
           configurable: true,
@@ -44,6 +54,7 @@ async function installInboundMessageHold(page: Page): Promise<void> {
       holding = false;
       queued.splice(0).forEach((deliver) => deliver());
     };
+    testApi.sentIntentCount = () => sentIntents;
   });
 }
 
@@ -63,16 +74,17 @@ test('acknowledges a tap immediately while awaiting the authoritative view', asy
   await installInboundMessageHold(host);
   await installInboundMessageHold(guest);
 
-  const code = await createRoom(host, 'Hana');
-  await joinRoom(guest, code, 'Gil');
-  await expectLobbyPlayer(host, 'Gil', 20_000);
-  await host.getByRole('button', { name: 'Start game' }).click();
-  await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
-  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  try {
+    const code = await createRoom(host, 'Hana');
+    await joinRoom(guest, code, 'Gil');
+    await expectLobbyPlayer(host, 'Gil', 20_000);
+    await host.getByRole('button', { name: 'Start game' }).click();
+    await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+    await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 
-  const actor = await host.locator('.playable:not(.wild)').count() > 0 ? host : guest;
-  await actor.evaluate(() => (window as any).__wildcardTest.holdInboundMessages());
-  const elapsed = await actor.locator('.playable:not(.wild)').first().evaluate(async (card: HTMLButtonElement) => {
+    const actor = await host.getByRole('button', { name: 'Face-down card' }).isEnabled() ? host : guest;
+    await actor.evaluate(() => (window as any).__wildcardTest.holdInboundMessages());
+    const elapsed = await actor.getByRole('button', { name: 'Face-down card' }).evaluate(async (card: HTMLButtonElement) => {
     const table = document.querySelector('.table')!;
     const started = performance.now();
     card.click();
@@ -87,22 +99,63 @@ test('acknowledges a tap immediately while awaiting the authoritative view', asy
       setTimeout(() => { observe.disconnect(); reject(new Error('pending acknowledgement not rendered')); }, 500);
     });
     return performance.now() - started;
-  });
+    });
 
-  expect(elapsed).toBeLessThan(50);
-  await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'true');
-  await expect(actor.locator('.action-pending')).toHaveCount(1);
-  await expect(actor.locator('.hand .card:enabled')).toHaveCount(0);
-  await expect(actor.getByRole('button', { name: 'Face-down card' })).toBeDisabled();
+    expect(elapsed).toBeLessThan(50);
+    await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'true');
+    await expect(actor.locator('.action-pending')).toHaveCount(1);
+    await expect(actor.locator('.hand .card:enabled')).toHaveCount(0);
+    await expect(actor.getByRole('button', { name: 'Face-down card' })).toBeDisabled();
 
-  await actor.waitForTimeout(150);
-  await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'true');
-  await actor.evaluate(() => (window as any).__wildcardTest.releaseInboundMessages());
-  await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
-  await expect(actor.locator('.action-pending')).toHaveCount(0);
+    await actor.waitForTimeout(150);
+    await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'true');
+    await actor.evaluate(() => (window as any).__wildcardTest.releaseInboundMessages());
+    await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
+    await expect(actor.locator('.action-pending')).toHaveCount(0);
+  } finally {
+    await hostCtx.close();
+    await guestCtx.close();
+  }
+});
 
-  await hostCtx.close();
-  await guestCtx.close();
+test('color and swap choices are inert while their actions await authority', async ({ browser }) => {
+  const context = await browser.newContext();
+  const guestContext = await browser.newContext();
+  const page = await context.newPage();
+  const guest = await guestContext.newPage();
+  await installInboundMessageHold(page);
+  try {
+    const code = await createRoom(page, 'Hana');
+    await joinRoom(guest, code, 'Gil');
+    await expectLobbyPlayer(page, 'Gil', 20_000);
+    await page.getByRole('button', { name: 'Start game' }).click();
+    await expect(page.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+    await openPendingWildPicker(page);
+    await page.evaluate(() => (window as any).__wildcardTest.holdInboundMessages());
+    await forcePendingAction(page, 'chooseColor');
+    await expect(page.locator('.swatches button')).toHaveCount(4);
+    expect(await page.locator('.swatches button').evaluateAll((buttons) =>
+      buttons.every((button) => (button as HTMLButtonElement).disabled))).toBe(true);
+    const colorCount = await page.evaluate(() => (window as any).__wildcardTest.sentIntentCount());
+    await page.locator('.swatches button').first().click({ force: true });
+    expect(await page.evaluate(() => (window as any).__wildcardTest.sentIntentCount())).toBe(colorCount);
+    await page.evaluate(() => (window as any).__wildcardTest.releaseInboundMessages());
+    await expect(page.locator('.table')).toHaveAttribute('aria-busy', 'false');
+
+    await page.evaluate(() => (window as any).__wildcardTest.openSwapPicker());
+    await page.evaluate(() => (window as any).__wildcardTest.holdInboundMessages());
+    await forcePendingAction(page, 'chooseSwapTarget');
+    await expect(page.locator('.list button')).toHaveCount(1);
+    await expect(page.locator('.list button').first()).toBeDisabled();
+    const swapCount = await page.evaluate(() => (window as any).__wildcardTest.sentIntentCount());
+    await page.locator('.list button').first().click({ force: true });
+    expect(await page.evaluate(() => (window as any).__wildcardTest.sentIntentCount())).toBe(swapCount);
+    await page.evaluate(() => (window as any).__wildcardTest.releaseInboundMessages());
+    await expect(page.locator('.table')).toHaveAttribute('aria-busy', 'false');
+  } finally {
+    await context.close();
+    await guestContext.close();
+  }
 });
 
 test('two players create, join, and play a full round to a win', async ({ browser }) => {

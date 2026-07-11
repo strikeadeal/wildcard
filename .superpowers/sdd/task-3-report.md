@@ -43,3 +43,29 @@ Pending at report creation; final SHA recorded in the handoff.
 - Pending presentation is derived from session state; the only local value is the clicked card ID used for visual targeting, and it is cleared when pending session state clears.
 - Wild cards acknowledge after color selection, when the action is actually sent, rather than when the color picker is opened.
 - The WebSocket shim is intentionally confined to this Playwright test and does not alter production transport behavior.
+
+## Review fixes
+
+Follow-up review identified that color and swap-target picker controls could remain accessibly enabled during their pending actions. Both picker APIs now accept a `disabled` state, Table passes `actionPending`, and the swap callback also guards against a duplicate send.
+
+The expanded Playwright regression covers:
+
+- draw acknowledgement using the guaranteed enabled draw pile rather than a randomized non-wild card;
+- native disabled semantics for all color choices during `chooseColor` pending state;
+- native disabled semantics for the swap target during `chooseSwapTarget` pending state;
+- outbound intent counts remaining unchanged after forced duplicate clicks;
+- pending state persisting while inbound authority is held and clearing only after the real server view/error is released;
+- browser context cleanup through `try/finally`.
+
+Follow-up RED:
+
+`npx playwright test e2e/game.spec.ts --grep "color and swap choices"` failed on the behavioral assertion: all four color buttons remained enabled (`Expected: true`, `Received: false` for every button being disabled). This RED was verified with the picker-disable production changes temporarily removed while retaining the completed real-game harness.
+
+Fresh GREEN verification:
+
+- `git diff --check`: clean.
+- `npm run check`: 0 errors and 0 warnings.
+- `npm test`: 24 files passed, 214 tests passed.
+- `npx playwright test e2e/game.spec.ts --grep "acknowledges a tap immediately|color and swap choices" --repeat-each=3`: 6 passed.
+
+The fix commit SHA is recorded in the task handoff because the report must be staged before that SHA exists.

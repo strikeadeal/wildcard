@@ -136,6 +136,7 @@
   let pendingRemove = $state<OpponentView | null>(null);
   let pendingLeave = $state(false);
   let pendingCardId = $state<number | null>(null);
+  let testSwapPicker = $state(false);
   let lastSelectionEpoch = $state(-1);
   $effect(() => {
     if (!actionPending) pendingCardId = null;
@@ -153,9 +154,18 @@
     testApi.openPendingWildPicker = () => {
       if (!recovering && view) pendingWild = Number.MAX_SAFE_INTEGER;
     };
+    testApi.openSwapPicker = () => {
+      if (!recovering && view) testSwapPicker = true;
+    };
+    testApi.forcePendingAction = (type: 'chooseColor' | 'chooseSwapTarget') => {
+      if (type === 'chooseColor') session.sendAction({ type, color: 'red' });
+      else session.sendAction({ type, targetId: view?.players.find((p) => p.id !== view.you.id)?.id ?? '' });
+    };
     return () => {
       if ((window as any).__wildcardTest?.openPendingWildPicker) {
         delete (window as any).__wildcardTest.openPendingWildPicker;
+        delete (window as any).__wildcardTest.openSwapPicker;
+        delete (window as any).__wildcardTest.forcePendingAction;
       }
     };
   });
@@ -354,12 +364,15 @@
   {/if}
 
   {#if !recovering && (pendingWild !== null || view.mustChooseColor)}
-    <ColorPicker onpick={pickColor} />
+    <ColorPicker disabled={actionPending} onpick={pickColor} />
   {/if}
-  {#if !recovering && view.mustChooseSwapTarget}
+  {#if !recovering && (view.mustChooseSwapTarget || testSwapPicker)}
     <SwapPicker
       players={others}
-      onpick={(id) => session.sendAction({ type: 'chooseSwapTarget', targetId: id })}
+      disabled={actionPending}
+      onpick={(id) => {
+        if (!actionPending) session.sendAction({ type: 'chooseSwapTarget', targetId: id });
+      }}
     />
   {/if}
   {#if view.phase === 'roundEnd'}
