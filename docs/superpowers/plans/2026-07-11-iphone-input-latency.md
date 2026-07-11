@@ -25,14 +25,16 @@ All required commands were run fresh from the feature worktree:
 | `npm test` | exit 0; 24 files, 214 tests passed |
 | `npm run check` | exit 0; 0 errors, 0 warnings |
 | `npm run build` | exit 0; Vite production and PWA build completed |
-| `npm run e2e` | exit 1; freshest run 14 passed, 2 randomized game simulations timed out |
+| `npm run e2e` | exit 0; 17 Playwright tests passed in 17.7 s |
 
-Three fresh full E2E attempts were made. Attempt 1: 15 passed; the ordinary
-full-round simulation timed out at 240 seconds. Attempt 2: 15 passed; the
-house-rules simulation timed out. Attempt 3: 14 passed; both simulations timed
-out. The acknowledgement, duplicate-action, reconnection, and other browser
-tests passed on every attempt, but the full E2E gate is not green and is not
-claimed. This correction pass did not alter production or E2E code.
+The earlier randomized simulation timeouts were diagnosed as a test-driver
+assumption, not server state or a production `pendingAction` failure.
+`actIfPossible()` selected `.playable.first()`, which can be fully covered in the
+fanned hand. A direct test-driver dispatch also needed one reactive settle
+boundary so the duplicate guard could update controls before the next simulated
+move. A focused regression failed before the helper fix and passes afterward;
+both formerly timing-out tests then passed individually (2.1 s and 2.5 s), and
+the fresh full suite passed 17/17. Production code was unchanged.
 
 The Playwright suite includes the Task 3 transport hold: local acknowledgement
 must render under 50 ms, remain present while the real inbound WebSocket frame
@@ -54,30 +56,34 @@ rendering opportunity has passed, though it is not a hardware display timestamp.
 
 | Profile | Tap | DOM mutation | Second-rAF boundary | Authority from tap | Authority after release |
 |---|---|---:|---:|---:|---:|
-| Mobile 390×844, 4× CPU | first draw | 6.1 | 36.0 | 32.5 | — |
-| Mobile 390×844, 4× CPU | warm draw | 9.3 | 33.0 | 25.9 | — |
-| Same, inbound authority held 400 ms | first draw | 7.3 | 30.9 | 453.5 | 20.5 |
-| Same, inbound authority held 400 ms | warm draw | 4.9 | 31.6 | 443.3 | 9.5 |
-| Laptop 1440×900 | first draw | 1.6 | 34.9 | 21.9 | — |
-| Laptop 1440×900 | warm draw | 1.5 | 28.0 | 14.1 | — |
+| Mobile 390×844, 4× CPU | card | 7.7 | 32.7 | 25.3 | — |
+| Mobile 390×844, 4× CPU | draw | 7.9 | 32.7 | 28.3 | — |
+| Same, authority released 400 ms from tap | card | 8.8 | 30.1 | 414.8 | 12.9 |
+| Same, authority released 400 ms from tap | draw | 4.5 | 30.8 | 412.5 | 10.3 |
+| Laptop 1440×900 | card | 1.2 | 30.8 | 17.5 | — |
+| Laptop 1440×900 | draw | 1.2 | 29.9 | 16.2 | — |
 
-The 400 ms case deterministically queues inbound WebSocket handler delivery. It
-proves pending feedback renders before authority is released and the subsequent
-authoritative view clears pending state; it is not a network-speed measurement.
-Chromium exposed no usable Event Timing interaction IDs for these synthetic
-touchscreen taps (`inpMs: 0`), so no INP result is claimed. Actual INP and real
-adverse-network behavior remain physical-device gates.
+The held cases queue inbound WebSocket handler delivery and schedule release
+400 ms from recorded `pointerdown` (observed 401.9–402.2 ms), not 400 ms after
+the second-rAF boundary. Pending feedback renders before release and authority
+then clears it; this is not a network-speed measurement. A deliberate second
+touchscreen tap while pending left outbound intent delta exactly 1 for both
+actions. Event Timing was inconsistent for synthetic taps, so no automated INP
+claim is made. Actual INP and real adverse-network behavior remain physical
+device gates.
 
-Automated draw-pile taps are used because the current fanned-hand geometry can
-fully occlude a randomized playable card from a genuine touchscreen hit point.
-Playable-card touchscreen timing therefore remains explicitly outstanding.
+The benchmark scans all playable non-wild cards for a real `elementFromPoint`
+hit and uses `page.touchscreen.tap()` at that coordinate. A deterministic setup
+fallback advances legal actions until a measurable card exists. Draw taps use
+the visible enabled draw pile. Both action types are measured normally and with
+authority held.
 
 ### Exact corrected benchmark stdout
 
 ```text
-{"scenario":"mobile-390x844-4x-cpu","code":"N6XZM","measurements":[{"phase":"first","action":"draw-card","holdMs":0,"domMutationMs":6.1,"secondRafPaintBoundaryMs":36,"inpMs":0,"authorityFromTapMs":32.5,"authorityAfterReleaseMs":null},{"phase":"warm","action":"draw-card","holdMs":0,"domMutationMs":9.3,"secondRafPaintBoundaryMs":33,"inpMs":0,"authorityFromTapMs":25.9,"authorityAfterReleaseMs":null}]}
-{"scenario":"mobile-390x844-4x-cpu-inbound-held-400ms","code":"XU88V","measurements":[{"phase":"first","action":"draw-card","holdMs":400,"domMutationMs":7.3,"secondRafPaintBoundaryMs":30.9,"inpMs":0,"authorityFromTapMs":453.5,"authorityAfterReleaseMs":20.5},{"phase":"warm","action":"draw-card","holdMs":400,"domMutationMs":4.9,"secondRafPaintBoundaryMs":31.6,"inpMs":0,"authorityFromTapMs":443.3,"authorityAfterReleaseMs":9.5}]}
-{"scenario":"laptop-1440x900","code":"2E2GY","measurements":[{"phase":"first","action":"draw-card","holdMs":0,"domMutationMs":1.6,"secondRafPaintBoundaryMs":34.9,"inpMs":0,"authorityFromTapMs":21.9,"authorityAfterReleaseMs":null},{"phase":"warm","action":"draw-card","holdMs":0,"domMutationMs":1.5,"secondRafPaintBoundaryMs":28,"inpMs":0,"authorityFromTapMs":14.1,"authorityAfterReleaseMs":null}]}
+{"scenario":"mobile-390x844-4x-cpu","code":"SE4YZ","measurements":[{"phase":"card","action":"play-card","holdMs":0,"domMutationMs":7.7,"secondRafPaintBoundaryMs":32.7,"inpMs":0,"authorityFromTapMs":25.3,"releaseFromTapMs":null,"authorityAfterReleaseMs":null,"outboundIntentDelta":1},{"phase":"draw","action":"draw-card","holdMs":0,"domMutationMs":7.9,"secondRafPaintBoundaryMs":32.7,"inpMs":0,"authorityFromTapMs":28.3,"releaseFromTapMs":null,"authorityAfterReleaseMs":null,"outboundIntentDelta":1}]}
+{"scenario":"mobile-390x844-4x-cpu-inbound-held-400ms","code":"CW74R","measurements":[{"phase":"card","action":"play-card","holdMs":400,"domMutationMs":8.8,"secondRafPaintBoundaryMs":30.1,"inpMs":88,"authorityFromTapMs":414.8,"releaseFromTapMs":401.9,"authorityAfterReleaseMs":12.9,"outboundIntentDelta":1},{"phase":"draw","action":"draw-card","holdMs":400,"domMutationMs":4.5,"secondRafPaintBoundaryMs":30.8,"inpMs":88,"authorityFromTapMs":412.5,"releaseFromTapMs":402.2,"authorityAfterReleaseMs":10.3,"outboundIntentDelta":1}]}
+{"scenario":"laptop-1440x900","code":"2WZK9","measurements":[{"phase":"card","action":"play-card","holdMs":0,"domMutationMs":1.2,"secondRafPaintBoundaryMs":30.8,"inpMs":0,"authorityFromTapMs":17.5,"releaseFromTapMs":null,"authorityAfterReleaseMs":null,"outboundIntentDelta":1},{"phase":"draw","action":"draw-card","holdMs":0,"domMutationMs":1.2,"secondRafPaintBoundaryMs":29.9,"inpMs":0,"authorityFromTapMs":16.2,"releaseFromTapMs":null,"authorityAfterReleaseMs":null,"outboundIntentDelta":1}]}
 ```
 
 ## Outstanding physical-iPhone acceptance gate
@@ -99,7 +105,5 @@ claimed. On the tester's iPhone and network class:
    authoritative delay may increase, but local feedback must remain under
    50 ms and reconnect behavior must remain unchanged.
 
-Final status: **DONE_WITH_CONCERNS** — corrected input measurements meet the
-local paint-aware target, but the randomized full E2E gate is currently flaky
-and physical iPhone Safari verification remains mandatory before release
-acceptance.
+Final status: **DONE_WITH_CONCERNS** — all automated gates pass; physical iPhone
+Safari verification remains mandatory before release acceptance.

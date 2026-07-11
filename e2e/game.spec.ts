@@ -66,6 +66,18 @@ test('action helper does not wait on a control that became disabled', async ({ p
   expect(Date.now() - started).toBeLessThan(1_000);
 });
 
+test('state-machine action helper activates a playable card despite fan occlusion', async ({ page }) => {
+  await page.setContent(`
+    <button class="playable" style="position:absolute;left:0;top:0"
+      onclick="document.body.dataset.played='covered'">covered</button>
+    <button id="cover" style="position:absolute;left:0;top:0">cover</button>
+    <button class="playable" style="position:absolute;left:120px;top:0"
+      onclick="document.body.dataset.played='second'">visible</button>
+  `);
+  expect(await actIfPossible(page)).toBe(true);
+  await expect(page.locator('body')).toHaveAttribute('data-played', 'covered');
+});
+
 test('acknowledges a tap immediately while awaiting the authoritative view', async ({ browser }) => {
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();

@@ -39,8 +39,19 @@ export async function actIfPossible(page: Page): Promise<boolean> {
   // a wild waiting for its color?
   const swatch = page.locator('.swatches button').first();
   if (await clickIfActionable(swatch)) return true;
-  const playable = page.locator('.playable').first();
-  if (await clickIfActionable(playable)) return true;
+  // This is a state-machine driver, not a pointer hit-test. Dispatch directly
+  // so fanned-card occlusion cannot strand an otherwise legal simulation.
+  const played = await page.evaluate(() => {
+    const candidate = [...document.querySelectorAll<HTMLButtonElement>('.playable')]
+      .find((button) => !button.disabled);
+    if (!candidate) return false;
+    candidate.click();
+    return true;
+  }).catch(() => false);
+  if (played) {
+    await page.waitForTimeout(20);
+    return true;
+  }
   const draw = page.getByRole('button', { name: 'Face-down card' });
   if (await clickIfActionable(draw)) return true;
   const pass = page.getByRole('button', { name: 'Keep it' });
