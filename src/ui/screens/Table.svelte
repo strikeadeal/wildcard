@@ -23,6 +23,7 @@
   const recovery = $derived(session.recovery);
   const selectionEpoch = $derived(session.selectionEpoch);
   const recovering = $derived(recovery !== 'idle');
+  const actionPending = $derived(session.pendingAction !== null);
   const myTurn = $derived(view !== null && view.turnPlayerId === view.you.id);
   const others = $derived.by(() => {
     if (!view) return [];
@@ -134,7 +135,11 @@
   let pendingWild = $state<number | null>(null);
   let pendingRemove = $state<OpponentView | null>(null);
   let pendingLeave = $state(false);
+  let pendingCardId = $state<number | null>(null);
   let lastSelectionEpoch = $state(-1);
+  $effect(() => {
+    if (!actionPending) pendingCardId = null;
+  });
   $effect(() => {
     if (selectionEpoch === lastSelectionEpoch) return;
     lastSelectionEpoch = selectionEpoch;
@@ -156,7 +161,7 @@
   });
 
   function cardClicked(card: Card) {
-    if (recovering || !view || !view.playableCardIds.includes(card.id)) return;
+    if (recovering || actionPending || !view || !view.playableCardIds.includes(card.id)) return;
     if (card.color === null) {
       pendingWild = card.id;
       return;
@@ -165,13 +170,14 @@
   }
 
   function play(cardId: number, chosenColor?: Color) {
-    if (recovering) return;
+    if (recovering || actionPending) return;
+    pendingCardId = cardId;
     if (myTurn) session.sendAction({ type: 'playCard', cardId, chosenColor });
     else session.sendAction({ type: 'jumpIn', cardId, chosenColor });
   }
 
   function pickColor(color: Color) {
-    if (recovering) return;
+    if (recovering || actionPending) return;
     if (pendingWild !== null) {
       play(pendingWild, color);
       pendingWild = null;
@@ -187,7 +193,7 @@
 </script>
 
 {#if view}
-  <div class="table" class:my-turn={myTurn}>
+  <div class="table" class:my-turn={myTurn} aria-busy={actionPending}>
     <button
       type="button"
       class="ghost leave-toggle"
@@ -227,16 +233,16 @@
         <OpponentSeat
           player={p}
           isTurn={view.turnPlayerId === p.id}
-          catchable={view.catchableIds.includes(p.id)}
+          catchable={!actionPending && view.catchableIds.includes(p.id)}
           drewNonce={drawFx && drawFx.playerId === p.id ? drawFx.nonce : 0}
           onskip={session.isHost && !p.connected && view.turnPlayerId === p.id
-            ? () => session.skipTurn(p.id)
+            ? () => { if (!actionPending) session.skipTurn(p.id); }
             : undefined}
           onremove={session.isHost && !p.connected
-            ? () => removePlayer(p)
+            ? () => { if (!actionPending) removePlayer(p); }
             : undefined}
           oncatch={() => {
-            if (!recovering) session.sendAction({ type: 'catchUno', targetId: p.id });
+            if (!recovering && !actionPending) session.sendAction({ type: 'catchUno', targetId: p.id });
           }}
         />
       {/each}
@@ -244,11 +250,12 @@
 
     <div class="center">
       <div class="piles">
-        <div class="drawpile" class:drawable={view.canDraw && !recovering}>
+        <div class="drawpile" class:drawable={view.canDraw && !recovering && !actionPending}>
           <div class="stack" use:anchor={'deck'}>
             <CardFace
               facedown
-              onclick={!recovering && view.canDraw
+              pending={session.pendingAction?.type === 'drawCard'}
+              onclick={!recovering && !actionPending && view.canDraw
                 ? () => session.sendAction({ type: 'drawCard' })
                 : undefined}
             />
@@ -311,13 +318,13 @@
 
       <div class="actions">
       {#if view.canChallenge}
-        <button disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'challengeWildFour' }) : undefined}>Challenge the +4</button>
+        <button class:action-pending={session.pendingAction?.type === 'challengeWildFour'} disabled={recovering || actionPending} onclick={!recovering && !actionPending ? () => session.sendAction({ type: 'challengeWildFour' }) : undefined}>Challenge the +4</button>
       {/if}
       {#if view.canPass}
-        <button class="ghost" disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'passTurn' }) : undefined}>Keep it</button>
+        <button class="ghost" class:action-pending={session.pendingAction?.type === 'passTurn'} disabled={recovering || actionPending} onclick={!recovering && !actionPending ? () => session.sendAction({ type: 'passTurn' }) : undefined}>Keep it</button>
       {/if}
       {#if view.canCallUno}
-        <button class="lastcard" disabled={recovering} onclick={!recovering ? () => session.sendAction({ type: 'callUno' }) : undefined}>Last card!</button>
+        <button class="lastcard" class:action-pending={session.pendingAction?.type === 'callUno'} disabled={recovering || actionPending} onclick={!recovering && !actionPending ? () => session.sendAction({ type: 'callUno' }) : undefined}>Last card!</button>
       {/if}
     </div>
 
@@ -331,7 +338,8 @@
           <CardFace
             {card}
             playable={view.playableCardIds.includes(card.id)}
-            onclick={!recovering && view.playableCardIds.includes(card.id)
+            pending={pendingCardId === card.id && actionPending}
+            onclick={!recovering && !actionPending && view.playableCardIds.includes(card.id)
               ? () => cardClicked(card)
               : undefined}
           />
@@ -553,6 +561,12 @@
     font-weight: 800;
     box-shadow: 0 0 20px rgb(245 197 66 / 0.4), 0 2px 0 rgb(0 0 0 / 0.25);
   }
+  .actions .action-pending {
+    opacity: 0.78;
+    transform: translateY(1px);
+    animation: action-control-pulse 480ms ease-in-out infinite alternate;
+  }
+  @keyframes action-control-pulse { to { box-shadow: 0 0 0 4px rgb(230 184 75 / 0.42); } }
 
   .hand {
     flex: 0 0 auto;

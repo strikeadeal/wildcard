@@ -9,12 +9,100 @@ async function openPendingWildPicker(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__wildcardTest.openPendingWildPicker());
 }
 
+async function installInboundMessageHold(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket;
+    let holding = false;
+    const queued: Array<() => void> = [];
+    class TestWebSocket extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        let handler: ((this: WebSocket, ev: MessageEvent) => any) | null = null;
+        Object.defineProperty(this, 'onmessage', {
+          configurable: true,
+          get: () => handler,
+          set: (next) => {
+            handler = next;
+            super.onmessage = next
+              ? (event) => {
+                  if (holding) queued.push(() => next.call(this, event));
+                  else next.call(this, event);
+                }
+              : null;
+          }
+        });
+      }
+    }
+    Object.defineProperty(TestWebSocket, 'CONNECTING', { value: NativeWebSocket.CONNECTING });
+    Object.defineProperty(TestWebSocket, 'OPEN', { value: NativeWebSocket.OPEN });
+    Object.defineProperty(TestWebSocket, 'CLOSING', { value: NativeWebSocket.CLOSING });
+    Object.defineProperty(TestWebSocket, 'CLOSED', { value: NativeWebSocket.CLOSED });
+    window.WebSocket = TestWebSocket;
+    const testApi = ((window as any).__wildcardTest ??= {});
+    testApi.holdInboundMessages = () => { holding = true; };
+    testApi.releaseInboundMessages = () => {
+      holding = false;
+      queued.splice(0).forEach((deliver) => deliver());
+    };
+  });
+}
+
 test('action helper does not wait on a control that became disabled', async ({ page }) => {
   await page.setContent('<button aria-label="Face-down card" disabled>W</button>');
   const started = Date.now();
   expect(await clickIfActionable(page.getByRole('button', { name: 'Face-down card' })))
     .toBe(false);
   expect(Date.now() - started).toBeLessThan(1_000);
+});
+
+test('acknowledges a tap immediately while awaiting the authoritative view', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+  await installInboundMessageHold(host);
+  await installInboundMessageHold(guest);
+
+  const code = await createRoom(host, 'Hana');
+  await joinRoom(guest, code, 'Gil');
+  await expectLobbyPlayer(host, 'Gil', 20_000);
+  await host.getByRole('button', { name: 'Start game' }).click();
+  await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+
+  const actor = await host.locator('.playable:not(.wild)').count() > 0 ? host : guest;
+  await actor.evaluate(() => (window as any).__wildcardTest.holdInboundMessages());
+  const elapsed = await actor.locator('.playable:not(.wild)').first().evaluate(async (card: HTMLButtonElement) => {
+    const table = document.querySelector('.table')!;
+    const started = performance.now();
+    card.click();
+    await new Promise<void>((resolve, reject) => {
+      const observe = new MutationObserver(() => {
+        if (table.getAttribute('aria-busy') === 'true' && card.classList.contains('action-pending')) {
+          observe.disconnect();
+          resolve();
+        }
+      });
+      observe.observe(table, { attributes: true, subtree: true, attributeFilter: ['aria-busy', 'class'] });
+      setTimeout(() => { observe.disconnect(); reject(new Error('pending acknowledgement not rendered')); }, 500);
+    });
+    return performance.now() - started;
+  });
+
+  expect(elapsed).toBeLessThan(50);
+  await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'true');
+  await expect(actor.locator('.action-pending')).toHaveCount(1);
+  await expect(actor.locator('.hand .card:enabled')).toHaveCount(0);
+  await expect(actor.getByRole('button', { name: 'Face-down card' })).toBeDisabled();
+
+  await actor.waitForTimeout(150);
+  await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'true');
+  await actor.evaluate(() => (window as any).__wildcardTest.releaseInboundMessages());
+  await expect(actor.locator('.table')).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
+  await expect(actor.locator('.action-pending')).toHaveCount(0);
+
+  await hostCtx.close();
+  await guestCtx.close();
 });
 
 test('two players create, join, and play a full round to a win', async ({ browser }) => {
