@@ -84,6 +84,25 @@ describe('session notice handling', () => {
     expect(session.lastPlayFromSelf).toBe(false);
   });
 
+  it('tracks an action until the server responds with a view or error', () => {
+    const sent: unknown[] = [];
+    (session as any).guest = { send: (action: unknown) => sent.push(action), close: () => {} };
+    const action = { type: 'drawCard' } as const;
+
+    session.sendAction(action);
+
+    expect(sent).toEqual([action]);
+    expect(session.pendingAction?.type).toBe('drawCard');
+    expect(session.pendingAction?.startedAt).toEqual(expect.any(Number));
+
+    (session as any).handleView(view());
+    expect(session.pendingAction).toBeNull();
+
+    session.sendAction(action);
+    (session as any).handleGuestError('Action rejected');
+    expect(session.pendingAction).toBeNull();
+  });
+
   it('queues a fresh transported notice as the current announcement', () => {
     (session as any).view = view({ discardTop: C('red', '5'), turnPlayerId: 'p0' });
     session.noticeHistory = [];

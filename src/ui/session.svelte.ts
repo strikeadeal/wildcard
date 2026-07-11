@@ -57,6 +57,7 @@ class Session {
   roomCode = $state<string | null>(null);
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
+  pendingAction = $state<{ type: Action['type']; startedAt: number } | null>(null);
   toast = $state<string | null>(null);
   noticeHistory = $state<PublicNotice[]>([]);
   noticeQueue = $state<PublicNotice[]>([]);
@@ -172,6 +173,7 @@ class Session {
    * deriving animation changes by diffing consecutive views.
    */
   private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
+    this.pendingAction = null;
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
       this.markReturningPlayer();
     }
@@ -207,6 +209,11 @@ class Session {
     } else if (status === 'connected' && this.recovery === 'unstable') {
       this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
     }
+  }
+
+  private handleGuestError(message: string): void {
+    this.pendingAction = null;
+    this.showToast(message);
   }
 
   private handleGuestClosed(): void {
@@ -322,7 +329,9 @@ class Session {
             }
             finish('networkFailed');
           },
-          onError: () => {},
+          onError: () => {
+            this.pendingAction = null;
+          },
           onClosed: () => finish('networkFailed'),
           onRoomClosed: () => finish('roomMissing'),
           onConnectionStatus: () => {}
@@ -413,7 +422,7 @@ class Session {
           },
           onView: (view, notices) => this.handleView(view, notices),
           onRejected: (reason) => finish(reason === 'codeTaken' ? 'codeTaken' : 'failed'),
-          onError: (message) => this.showToast(message),
+          onError: (message) => this.handleGuestError(message),
           onClosed: () => {
             if (settled) this.handleGuestClosed();
             else finish('failed');
@@ -467,7 +476,7 @@ class Session {
           }
           this.fail(fatalFromRejection(reason));
         },
-        onError: (message) => this.showToast(message),
+        onError: (message) => this.handleGuestError(message),
         onClosed: () => this.handleGuestClosed(),
         onRoomClosed: () => this.handleRoomClosed(),
         onConnectionStatus: (status) => this.handleGuestStatus(status)
@@ -512,6 +521,7 @@ class Session {
   }
 
   sendAction(action: Action): void {
+    this.pendingAction = { type: action.type, startedAt: Date.now() };
     this.guest?.send(action);
   }
 
@@ -556,6 +566,7 @@ class Session {
     this.roomCode = null;
     this.lobby = null;
     this.view = null;
+    this.pendingAction = null;
     this.noticeHistory = [];
     this.noticeQueue = [];
     this.fxEvent = null;
