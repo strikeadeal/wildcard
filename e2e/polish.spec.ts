@@ -71,6 +71,8 @@ test('table shows actionable prompts, scores, and away-player controls safely', 
   await expect(host.locator('.table.my-turn')).toBeVisible();
   await expect(host.locator('.prompt')).toContainText(/Your turn/);
   await expect(host.locator('.drawpile.drawable')).toBeVisible();
+  // The UNO button is always present and pressable, even with a full hand.
+  await expect(host.getByRole('button', { name: 'UNO' })).toBeEnabled();
   await expect(host.locator('.seat').filter({ hasText: 'Gil' }).getByText(/pts$/)).toBeVisible();
   await expect(host.locator('.seat').filter({ hasText: 'Ira' }).getByText(/pts$/)).toBeVisible();
 
@@ -121,8 +123,6 @@ test('queued notices keep stacked penalties visible in recent actions', async ({
     if (await clickIfActionable(nextRound)) return true;
     const challenge = page.getByRole('button', { name: 'Challenge the +4' });
     if (await clickIfActionable(challenge)) return true;
-    const lastCard = page.getByRole('button', { name: 'Last card!' });
-    if (await clickIfActionable(lastCard)) return true;
     return actIfPossible(page);
   };
 

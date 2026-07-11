@@ -227,11 +227,28 @@ describe('RoomSession', () => {
     host.cmd({ type: 'start' });
     await flush();
 
-    a.cmd({ type: 'intent', action: { type: 'callUno' }, intentId: 'intent-42' });
+    a.cmd({ type: 'intent', action: { type: 'catchUno', targetId: 'nobody' }, intentId: 'intent-42' });
     await flush();
     expect(a.last('error')?.intentId).toBe('intent-42');
 
-    expect(() => a.cmd({ type: 'intent', action: { type: 'callUno' } })).not.toThrow();
+    expect(() => a.cmd({ type: 'intent', action: { type: 'catchUno', targetId: 'nobody' } })).not.toThrow();
+  });
+
+  it('accepts a callUno intent with a full hand and broadcasts the notice', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    host.cmd({ type: 'start' });
+    await flush();
+
+    a.cmd({ type: 'intent', action: { type: 'callUno' }, intentId: 'intent-uno' });
+    await flush();
+
+    const view = a.last('view');
+    expect(view?.intentId).toBe('intent-uno');
+    expect(view?.notices?.map((n) => n.kind)).toContain('uno');
+    expect(view?.view.you.saidUno).toBe(true);
   });
 
   it('replays a successful acknowledgement without applying the action twice', async () => {
@@ -262,7 +279,7 @@ describe('RoomSession', () => {
     const token = a.last('welcome')!.token;
     host.cmd({ type: 'start' });
     await flush();
-    a.cmd({ type: 'intent', action: { type: 'callUno' }, intentId: 'stable-error' });
+    a.cmd({ type: 'intent', action: { type: 'catchUno', targetId: 'nobody' }, intentId: 'stable-error' });
     await flush();
 
     const woken = RoomSession.restore(structuredClone(room.snapshot()));

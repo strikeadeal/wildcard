@@ -33,7 +33,7 @@ export interface PlayerState {
   id: string;
   name: string;
   hand: Card[];
-  saidUno: boolean;   // called "last card" while at 1 card
+  saidUno: boolean;   // pressed UNO; cleared on gaining cards, playing to ≠1, or hand swap/rotate
   connected: boolean;
   score: number;      // session running total
 }
@@ -105,7 +105,7 @@ export interface PlayerView {
   canDraw: boolean;
   canPass: boolean;
   canChallenge: boolean;
-  canCallUno: boolean;
+  canCallUno: boolean;       // a callUno would be accepted (not roundEnd, not already called)
   catchableIds: string[];    // players you could catch for a missed call
   mustChooseColor: boolean;
   mustChooseSwapTarget: boolean;

@@ -167,7 +167,7 @@ export function formatNotice(
     case 'reverse':
       return `${actor} reversed play`;
     case 'uno':
-      return `${actor} called last card`;
+      return `${actor} called UNO`;
     case 'catch':
       return `${actor} caught ${target} · draw ${n}`;
     case 'jumpIn':

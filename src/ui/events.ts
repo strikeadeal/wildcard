@@ -59,10 +59,11 @@ function deriveEvent(prev: PlayerView | null, next: PlayerView): GameEvent | nul
     }
   }
 
-  // UNO: a player just called "last card" while holding one.
+  // UNO: a player just pressed the UNO button (any hand size — the notice
+  // path fires for every successful call, so this fallback must agree).
   for (const p of next.players) {
     const before = prev.players.find((q) => q.id === p.id);
-    if (before && !before.saidUno && p.saidUno && p.cardCount === 1) {
+    if (before && !before.saidUno && p.saidUno) {
       return { kind: 'uno', playerId: p.id, isYou: p.id === next.you.id };
     }
   }

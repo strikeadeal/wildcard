@@ -3,8 +3,8 @@
 WILDCARD is the classic card game, playable free in your browser with friends —
 no accounts, no ads, no app store. One person creates a room, everyone else
 joins with a short code, and you play a normal hand of the game you already
-know: match color or number, stack draw cards, skip and reverse, call out your
-last card, and slap down a wild when you're stuck.
+know: match color or number, stack draw cards, skip and reverse, press UNO on
+your last card, and slap down a wild when you're stuck.
 
 **Play now: https://strikeadeal.github.io/wildcard/**
 
@@ -15,9 +15,10 @@ last card, and slap down a wild when you're stuck.
 3. Share that code with everyone else. They enter their name and the code,
    then tap **Join**.
 4. Once everyone's in, the host starts the round. Play proceeds like the
-   card game you grew up with: match the top card's color or number, draw
-   when you can't play, and don't forget to call out when you're down to
-   one card.
+   card game you grew up with: match the top card's color or number, and draw
+   when you can't play. The UNO button is always on the table — nothing will
+   remind you to press it when you're down to your last card, and an opponent
+   who catches you un-called makes you draw two.
 
 ### House rules
 

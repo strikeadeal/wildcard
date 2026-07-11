@@ -32,12 +32,32 @@ describe('last-card call and catch', () => {
     expect(apply(saved, 'p1', { type: 'catchUno', targetId: 'p0' }).ok).toBe(false);
   });
 
-  it('rejects calling with 3+ cards and catching yourself', () => {
+  it('calling with 3+ cards succeeds but gives no lasting protection', () => {
+    const a = C('red', '1');
+    const b = C('red', '2');
+    const r9 = C('red', '9');
     const s = fixedState(
-      [[C('red', '1'), C('blue', '4'), C('green', '9')], [C('green', '1')]],
+      [[a, b, C('blue', '4')], [r9, C('red', '8')]],
       C('red', '5')
     );
-    expect(apply(s, 'p0', { type: 'callUno' }).ok).toBe(false);
+    const called = ok(apply(s, 'p0', { type: 'callUno' }));
+    expect(called.players[0]!.saidUno).toBe(true);
+    // playing to two cards clears the early call
+    const afterP0 = ok(apply(called, 'p0', { type: 'playCard', cardId: a.id }));
+    expect(afterP0.players[0]!.saidUno).toBe(false);
+    // reaching one card without recalling leaves p0 catchable
+    const afterP1 = ok(apply(afterP0, 'p1', { type: 'playCard', cardId: r9.id }));
+    const atOne = ok(apply(afterP1, 'p0', { type: 'playCard', cardId: b.id }));
+    const caught = ok(apply(atOne, 'p1', { type: 'catchUno', targetId: 'p0' }));
+    expect(caught.players[0]!.hand).toHaveLength(3);
+  });
+
+  it('rejects a repeat call, calling after round end, and catching yourself', () => {
+    const s = fixedState([[C('red', '1'), C('blue', '4')], [C('green', '1')]], C('red', '5'));
+    const called = ok(apply(s, 'p0', { type: 'callUno' }));
+    expect(apply(called, 'p0', { type: 'callUno' }).ok).toBe(false);
+    const over = fixedState([[C('red', '1')], [C('green', '1')]], C('red', '5'), { phase: 'roundEnd' });
+    expect(apply(over, 'p0', { type: 'callUno' }).ok).toBe(false);
     expect(apply(s, 'p0', { type: 'catchUno', targetId: 'p0' }).ok).toBe(false);
   });
 });
