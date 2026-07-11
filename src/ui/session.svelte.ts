@@ -1,10 +1,9 @@
-import { DEFAULT_RULES, type Action, type Card, type PlayerView, type RuleConfig } from '../engine/types';
+import { type Action, type Card, type PlayerView, type RuleConfig } from '../engine/types';
 import { deriveViewChange, type GameEvent } from './events';
 import { newRoomCode, normalizeCode } from '../net/codes';
 import { GuestSession } from '../net/guest';
-import { HostSession } from '../net/host';
-import { hostRoom, joinRoom as peerJoin } from '../net/peer';
-import type { LobbyInfo } from '../net/protocol';
+import { connectRoom } from '../net/socket';
+import type { LobbyInfo, RejectReason } from '../net/protocol';
 import type { FatalReason } from './fatal-state';
 import { nextRecoveryState, type RecoveryState } from './connection-state';
 import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
@@ -33,13 +32,15 @@ function writeStorage(key: string, value: string): void {
   localStorage.setItem(key, value);
 }
 
-const configuredSeed = Number(import.meta.env.VITE_GAME_SEED);
-const e2eSeed = Number.isFinite(configuredSeed) ? () => configuredSeed : undefined;
+/** A rejection that ends the attempt, mapped onto the fatal screen's copy. */
+function fatalFromRejection(reason: RejectReason): FatalReason {
+  if (reason === 'notFound' || reason === 'codeTaken') return 'roomUnavailable';
+  return reason;
+}
 
 /**
- * A silent ICE failure can leave the underlying PeerJS promise pending
- * forever (no 'open' and no 'error' ever fires) — the spec forbids an
- * infinite spinner, so every awaited peer call is bounded.
+ * A stalled handshake must not leave an infinite spinner —
+ * every awaited connect is bounded.
  */
 function withTimeout<T>(p: Promise<T>, ms = 20000): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -71,8 +72,9 @@ class Session {
   /** Which connect flow is in flight — drives Connecting's operation-specific copy. */
   operation = $state<Operation>(null);
   fatal = $state<{ reason: FatalReason; code: string | null } | null>(null);
-  isHost = $state(false);
   playerId = $state<string | null>(null);
+  /** Seat p0 is the room's creator and carries the host powers. */
+  isHost = $derived(this.playerId === 'p0');
   prefillCode = $state('');
   recovery = $state<RecoveryState>('idle');
   selectionEpoch = $state(0);
@@ -85,12 +87,10 @@ class Session {
     !!this.installEvent && !this.installDismissed && this.returningPlayer
   );
 
-  gameLive = $derived(this.isHost && this.view !== null && this.screen === 'game');
+  gameLive = $derived(this.view !== null && this.screen === 'game');
 
-  private host: HostSession | null = null;
   private guest: GuestSession | null = null;
   private destroyPeer: (() => void) | null = null;
-  private dropHostSignaling: (() => void) | null = null;
   private lastJoin: { code: string; name: string } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -201,7 +201,7 @@ class Session {
   }
 
   private handleGuestStatus(status: 'connecting' | 'connected' | 'unstable' | 'closed'): void {
-    if (this.isHost || this.screen !== 'game' || !this.view) return;
+    if (this.screen !== 'game' && this.screen !== 'lobby') return;
     if (status === 'unstable') {
       this.recovery = nextRecoveryState(this.recovery, { type: 'transportUnstable' });
     } else if (status === 'connected' && this.recovery === 'unstable') {
@@ -211,7 +211,9 @@ class Session {
 
   private handleGuestClosed(): void {
     if (this.screen === 'fatal' || this.screen === 'home') return;
-    if (this.screen !== 'game' || !this.view || !this.lastJoin) {
+    // Both the lobby and the table recover in place — the room lives on the
+    // server now, so any player (host included) can drop and slot back in.
+    if ((this.screen !== 'game' && this.screen !== 'lobby') || !this.lastJoin) {
       this.fail('roomUnavailable');
       return;
     }
@@ -252,7 +254,7 @@ class Session {
     const epoch = this.epoch;
     const { code, name } = this.lastJoin;
     const token = readStorage(tokenKey(code));
-    const raw = peerJoin(code);
+    const raw = connectRoom(code);
     try {
       const { conn, destroy } = await withTimeout(raw);
       if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
@@ -275,40 +277,60 @@ class Session {
           if (outcome !== 'joined') dispose();
           resolve(outcome);
         };
-        candidate = new GuestSession(conn, name.trim() || 'Player', token, {
+        const adopt = (): boolean => {
+          if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
+            finish('networkFailed');
+            return false;
+          }
+          this.destroyPeer = destroy;
+          this.guest = candidate;
+          if (nextPlayerId) this.playerId = nextPlayerId;
+          if (nextToken) writeStorage(tokenKey(code), nextToken);
+          return true;
+        };
+        candidate = new GuestSession(conn, name.trim() || 'Player', token, false, {
           onWelcome: (playerId, freshToken) => {
             nextPlayerId = playerId;
             nextToken = freshToken;
           },
-          onLobby: () => {},
+          onLobby: (lobby) => {
+            // A pre-game drop lands back in the lobby (possibly on a fresh seat).
+            if (!adopt()) return;
+            this.lobby = lobby;
+            this.screen = 'lobby';
+            this.bumpSelectionEpoch();
+            this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
+            finish('joined');
+          },
           onView: (view, notices) => {
-            if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
-              finish('networkFailed');
-              return;
-            }
-            this.destroyPeer = destroy;
-            this.guest = candidate;
-            if (nextPlayerId) this.playerId = nextPlayerId;
-            if (nextToken) writeStorage(tokenKey(code), nextToken);
+            if (!adopt()) return;
             this.handleView(view, notices);
             finish('joined');
           },
           onRejected: (reason) => {
-            if (reason === 'badToken' && typeof localStorage !== 'undefined') {
+            if (typeof localStorage !== 'undefined' &&
+                (reason === 'badToken' || reason === 'started')) {
+              // The seat is gone for good (removed, or the game started
+              // without a reclaimable token): stop retrying with it.
               localStorage.removeItem(tokenKey(code));
               finish('seatUnavailable');
+              return;
+            }
+            if (reason === 'notFound') {
+              finish('roomMissing');
               return;
             }
             finish('networkFailed');
           },
           onError: () => {},
           onClosed: () => finish('networkFailed'),
+          onRoomClosed: () => finish('roomMissing'),
           onConnectionStatus: () => {}
         });
       });
-    } catch (e) {
+    } catch {
       raw.then((r) => r.destroy()).catch(() => {});
-      return (e as Error).message === 'not-found' ? 'roomMissing' : 'networkFailed';
+      return 'networkFailed';
     }
   }
 
@@ -332,49 +354,78 @@ class Session {
     writeStorage(NAME_KEY, name);
     this.operation = 'create';
     this.screen = 'connecting';
-    this.isHost = true;
-    this.playerId = 'p0';
-    const events = {
-      onLobby: (lobby: LobbyInfo) => {
-        this.operation = null;
-        this.lobby = lobby;
-        if (this.screen === 'connecting') this.screen = 'lobby';
-      },
-      onView: (view: PlayerView, notices?: PublicNotice[]) => this.handleView(view, notices),
-      onError: (message: string) => this.showToast(message)
-    };
-    this.host = new HostSession(
-      name.trim() || 'Host', DEFAULT_RULES, events, undefined, e2eSeed
-    );
     const epoch = this.epoch;
     for (let attempt = 0; attempt < 2; attempt++) {
       const code = newRoomCode();
-      const raw = hostRoom(code, (conn) => this.host?.attach(conn));
-      try {
-        const room = await withTimeout(raw);
-        if (this.epoch !== epoch) {
-          room.destroy();
-          return;
-        }
-        this.destroyPeer = room.destroy;
-        this.dropHostSignaling = room.dropSignaling;
-        this.roomCode = code;
-        this.lobby = this.host.lobbyInfo();
-        this.operation = null;
-        this.screen = 'lobby';
+      const outcome = await this.tryCreateOnce(code, name, epoch);
+      if (this.epoch !== epoch || outcome === 'created' || outcome === 'cancelled') return;
+      if (outcome === 'failed') {
+        this.fail('networkUnavailable');
         return;
-      } catch (e) {
-        raw.then((r) => r.destroy()).catch(() => {});
-        if (this.epoch !== epoch) return;
-        const message = (e as Error).message;
-        if (message !== 'code-taken') {
-          this.fail('networkUnavailable');
-          return;
-        }
       }
+      // 'codeTaken' — roll another code and try again.
     }
     if (this.epoch !== epoch) return;
     this.fail('networkUnavailable');
+  }
+
+  private async tryCreateOnce(
+    code: string, name: string, epoch: number
+  ): Promise<'created' | 'codeTaken' | 'failed' | 'cancelled'> {
+    const raw = connectRoom(code);
+    try {
+      const { conn, destroy } = await withTimeout(raw);
+      if (this.epoch !== epoch) {
+        conn.close();
+        destroy();
+        return 'cancelled';
+      }
+      return await new Promise((resolve) => {
+        let settled = false;
+        let candidate: GuestSession | null = null;
+        const finish = (outcome: 'created' | 'codeTaken' | 'failed' | 'cancelled') => {
+          if (settled) return;
+          settled = true;
+          if (outcome !== 'created') {
+            candidate?.close();
+            destroy();
+          }
+          resolve(outcome);
+        };
+        candidate = new GuestSession(conn, name.trim() || 'Host', null, true, {
+          onWelcome: (playerId, token) => {
+            this.playerId = playerId;
+            writeStorage(tokenKey(code), token);
+          },
+          onLobby: (lobby) => {
+            if (this.epoch !== epoch) {
+              finish('cancelled');
+              return;
+            }
+            this.destroyPeer = destroy;
+            this.guest = candidate;
+            this.roomCode = code;
+            this.lastJoin = { code, name }; // hosts recover their seat too
+            this.lobby = lobby;
+            this.operation = null;
+            this.screen = 'lobby';
+            finish('created');
+          },
+          onView: (view, notices) => this.handleView(view, notices),
+          onRejected: (reason) => finish(reason === 'codeTaken' ? 'codeTaken' : 'failed'),
+          onError: (message) => this.showToast(message),
+          onClosed: () => {
+            if (settled) this.handleGuestClosed();
+            else finish('failed');
+          },
+          onRoomClosed: () => this.handleRoomClosed(),
+          onConnectionStatus: (status) => this.handleGuestStatus(status)
+        });
+      });
+    } catch {
+      raw.then((r) => r.destroy()).catch(() => {});
+      return this.epoch !== epoch ? 'cancelled' : 'failed';
+    }
   }
 
   async joinRoom(codeInput: string, name: string, isRejoin = false): Promise<void> {
@@ -389,9 +440,8 @@ class Session {
     writeStorage(NAME_KEY, name);
     this.lastJoin = { code, name };
     this.screen = 'connecting';
-    this.isHost = false;
     const epoch = this.epoch;
-    const raw = peerJoin(code);
+    const raw = connectRoom(code);
     try {
       const { conn, destroy } = await withTimeout(raw);
       if (this.epoch !== epoch) {
@@ -400,7 +450,7 @@ class Session {
       }
       this.destroyPeer = destroy;
       this.roomCode = code;
-      this.guest = new GuestSession(conn, name.trim() || 'Player', readStorage(tokenKey(code)), {
+      this.guest = new GuestSession(conn, name.trim() || 'Player', readStorage(tokenKey(code)), false, {
         onWelcome: (playerId, token) => {
           this.playerId = playerId;
           writeStorage(tokenKey(code), token);
@@ -412,20 +462,20 @@ class Session {
         },
         onView: (view, notices) => this.handleView(view, notices),
         onRejected: (reason) => {
-          if (reason === 'badToken' && typeof localStorage !== 'undefined') {
+          if (typeof localStorage !== 'undefined' && (reason === 'badToken' || reason === 'notFound')) {
             localStorage.removeItem(tokenKey(code));
           }
-          this.fail(reason);
+          this.fail(fatalFromRejection(reason));
         },
         onError: (message) => this.showToast(message),
         onClosed: () => this.handleGuestClosed(),
+        onRoomClosed: () => this.handleRoomClosed(),
         onConnectionStatus: (status) => this.handleGuestStatus(status)
       });
-    } catch (e) {
+    } catch {
       raw.then((r) => r.destroy()).catch(() => {});
       if (this.epoch !== epoch) return;
-      const message = (e as Error).message;
-      this.fail(message === 'not-found' ? 'roomUnavailable' : 'networkUnavailable');
+      this.fail('networkUnavailable');
     }
   }
 
@@ -444,17 +494,11 @@ class Session {
     void this.recoverGuest();
   }
 
-  dropGuestConnectionForTest(): void {
-    if (!import.meta.env.DEV || this.isHost || !this.guest) return;
+  /** Sever this player's socket — host or guest — to exercise recovery. */
+  dropConnectionForTest(): void {
+    if (!import.meta.env.DEV || !this.guest) return;
     this.handleGuestStatus('unstable');
     setTimeout(() => this.guest?.close(), 60);
-  }
-
-  /** Simulate a broker socket drop on the host (auto-reconnects, re-emitting
-   * PeerJS 'open') — the production trigger for duplicate-listener bugs. */
-  dropHostSignalingForTest(): void {
-    if (!import.meta.env.DEV || !this.isHost) return;
-    this.dropHostSignaling?.();
   }
 
   clearFatalToHome(): void {
@@ -468,26 +512,32 @@ class Session {
   }
 
   sendAction(action: Action): void {
-    if (this.host) this.host.applyLocal(action);
-    else this.guest?.send(action);
+    this.guest?.send(action);
   }
 
   startGame(): void {
-    this.host?.startGame();
+    if (this.isHost) this.guest?.startGame();
   }
 
   setConfig(config: RuleConfig): void {
-    this.host?.setConfig(config);
+    if (this.isHost) this.guest?.setConfig(config);
   }
 
   skipTurn(playerId: string): void {
-    if (!this.isHost) return;
-    this.host?.skipTurn(playerId);
+    if (this.isHost) this.guest?.skipTurn(playerId);
   }
 
   removeSeat(playerId: string): void {
-    if (!this.isHost) return;
-    this.host?.removeSeat(playerId);
+    if (this.isHost) this.guest?.removeSeat(playerId);
+  }
+
+  /** The host ended the room: everyone else lands on the fatal screen. */
+  private handleRoomClosed(): void {
+    const code = this.roomCode ?? this.lastJoin?.code;
+    if (code && typeof localStorage !== 'undefined') {
+      localStorage.removeItem(tokenKey(code)); // the seat died with the room
+    }
+    this.fail('roomUnavailable');
   }
 
   leave(): void {
@@ -501,10 +551,8 @@ class Session {
     }
     this.destroyPeer?.();
     this.guest?.close();
-    this.host = null;
     this.guest = null;
     this.destroyPeer = null;
-    this.dropHostSignaling = null;
     this.roomCode = null;
     this.lobby = null;
     this.view = null;
@@ -518,7 +566,6 @@ class Session {
     this.fatal = null;
     this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
     this.lastFailWasCreate = false;
-    this.isHost = false;
     this.playerId = null;
     this.screen = 'home';
   }

@@ -1,16 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import { actIfPossible, clickIfActionable, createRoom, expectLobbyPlayer, joinRoom } from './helpers';
 
-async function dropGuestConnection(page: Page): Promise<void> {
-  await page.evaluate(() => (window as any).__wildcardTest.dropGuestConnection());
+async function dropConnection(page: Page): Promise<void> {
+  await page.evaluate(() => (window as any).__wildcardTest.dropConnection());
 }
 
 async function openPendingWildPicker(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__wildcardTest.openPendingWildPicker());
-}
-
-async function dropHostSignaling(page: Page): Promise<void> {
-  await page.evaluate(() => (window as any).__wildcardTest.dropHostSignaling());
 }
 
 test('action helper does not wait on a control that became disabled', async ({ page }) => {
@@ -88,7 +84,7 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await openPendingWildPicker(guest);
   await expect(guest.locator('.swatches')).toBeVisible({ timeout: 5_000 });
 
-  await dropGuestConnection(guest);
+  await dropConnection(guest);
   await expect(guest.getByRole('status')).toContainText('Connection unstable…', { timeout: 10_000 });
   await expect(guest.locator('.swatches')).toHaveCount(0, { timeout: 10_000 });
   // The Away badge is transient here — a fast rejoin can clear it before this
@@ -107,33 +103,34 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await guestCtx.close();
 });
 
-test('a guest joining after a host broker reconnect gets exactly one seat', async ({ browser }) => {
+test('the room survives the host dropping and rejoining mid-game', async ({ browser }) => {
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const host = await hostCtx.newPage();
   const guest = await guestCtx.newPage();
 
   const code = await createRoom(host, 'Pat');
-  // Drop the host's signaling socket the way the public broker does; the
-  // session auto-reconnects and PeerJS re-emits 'open'. A joiner arriving
-  // after that used to be attached once per 'open' → duplicate lobby seats.
-  await dropHostSignaling(host);
-  await host.waitForTimeout(1_000); // let the reconnect settle
-
   await joinRoom(guest, code, 'Libby');
-  await expectLobbyPlayer(host, 'Libby', 20_000); // asserts exactly one row
-  await expectLobbyPlayer(guest, 'Libby', 20_000);
-
-  // The single seat must be fully functional: start and let the guest act.
+  await expectLobbyPlayer(host, 'Libby', 20_000);
   await host.getByRole('button', { name: 'Start game' }).click();
-  await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
-  const pages = [host, guest];
-  let guestActed = false;
-  for (let i = 0; i < 60 && !guestActed; i++) {
-    guestActed = await actIfPossible(guest);
-    if (!guestActed && !(await actIfPossible(host))) await host.waitForTimeout(250);
+  await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  const hostHand = await host.locator('.hand .card').count();
+
+  // The old P2P design died here: the host WAS the server. Now the room
+  // lives in the Durable Object, so the host recovers like anyone else.
+  await dropConnection(host);
+  await expect(guest.getByText('Pat lost connection')).toBeVisible({ timeout: 20_000 });
+  await expect(host.locator('.hand .card')).toHaveCount(hostHand, { timeout: 30_000 });
+  await expect(host.getByRole('status')).toHaveCount(0, { timeout: 20_000 });
+  await expect(guest.getByText('Pat rejoined')).toBeVisible({ timeout: 20_000 });
+
+  // Host powers survive the round trip: the game still starts/plays.
+  let anyoneActed = false;
+  for (let i = 0; i < 60 && !anyoneActed; i++) {
+    anyoneActed = (await actIfPossible(host)) || (await actIfPossible(guest));
+    if (!anyoneActed) await host.waitForTimeout(250);
   }
-  expect(guestActed).toBe(true); // the guest's intents still reach the host
+  expect(anyoneActed).toBe(true);
 
   await hostCtx.close();
   await guestCtx.close();
@@ -183,8 +180,9 @@ test('the host sees an end-game confirm on the table leave control', async ({ br
   await host.getByRole('button', { name: 'End game' }).click();
   await expect(host.getByRole('button', { name: 'Create a room' })).toBeVisible({ timeout: 10_000 });
 
-  // The abandoned guest lands on the room-unavailable overlay, not a dead UI.
-  await expect(guest.getByRole('status')).toContainText('Room unavailable', { timeout: 30_000 });
+  // The room broadcast its closure: the guest lands on the fatal screen
+  // immediately, not after a timed-out reconnect loop.
+  await expect(guest.getByRole('heading', { name: 'Room unavailable' })).toBeVisible({ timeout: 10_000 });
 
   await hostCtx.close();
   await guestCtx.close();

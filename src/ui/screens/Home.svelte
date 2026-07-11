@@ -52,7 +52,7 @@
   {#if !session.online}
     <section class="network-note" role="status" aria-live="polite">
       <p><strong>You’re offline.</strong> The app is available, but creating or joining a room needs a network connection.</p>
-      <p class="detail">Live play still depends on PeerJS signalling plus a direct or relay WebRTC path once you reconnect.</p>
+      <p class="detail">Live play resumes as soon as you can reach the WILDCARD game service again.</p>
     </section>
   {/if}
 

@@ -141,7 +141,7 @@ test('queued notices keep stacked penalties visible in recent actions', async ({
   await expect(stackedText).toBeVisible();
 });
 
-test('connection overlay keeps the frozen table visible and ends in room unavailable when the host leaves', async ({ browser }) => {
+test('connection overlay keeps the frozen table visible and ends in room unavailable when the room is gone', async ({ browser }) => {
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const host = await hostCtx.newPage();
@@ -153,11 +153,22 @@ test('connection overlay keeps the frozen table visible and ends in room unavail
   await host.getByRole('button', { name: 'Start game' }).click();
   await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
 
-  await host.close();
-
+  // The guest falls off the network entirely: recovery burns its retries and
+  // parks on the network overlay, with the frozen table still visible behind.
+  await guestCtx.setOffline(true);
+  await guest.evaluate(() => (window as any).__wildcardTest.dropConnection());
   await expect(guest.getByRole('status')).toContainText('Connection unstable…', { timeout: 20_000 });
+  await expect(guest.getByRole('status')).toContainText('Could not reconnect. Check your network.', { timeout: 20_000 });
   await expect(guest.locator('.hand .card')).toHaveCount(7);
-  await expect(guest.getByRole('status')).toContainText('Rejoining your seat…', { timeout: 20_000 });
+
+  // Meanwhile the host ends the game — the room is purged for good.
+  await host.getByRole('button', { name: 'Leave game' }).click();
+  await host.getByRole('dialog', { name: 'End the game?' }).getByRole('button', { name: 'End game' }).click();
+  await expect(host.getByRole('button', { name: 'Create a room' })).toBeVisible({ timeout: 10_000 });
+
+  // Back online, the retry discovers the room no longer exists.
+  await guestCtx.setOffline(false);
+  await guest.getByRole('button', { name: 'Retry' }).click();
   await expect(guest.getByRole('status')).toContainText('Room unavailable. The host may have left.', { timeout: 30_000 });
   await expect(guest.getByRole('button', { name: 'Home' })).toBeVisible();
   await expect(guest.getByRole('button', { name: 'Retry' })).toHaveCount(0);

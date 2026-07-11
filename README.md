@@ -34,27 +34,32 @@ The host can toggle a few common house variants before the round starts:
 
 ### A note on how rooms work
 
-Rooms are peer-to-peer: the host's browser tab *is* the game. There's no
-server keeping score in the background, which means if the host closes their
-tab or loses their connection, the room closes with them. Everyone else just
-needs to reconnect to a new room if that happens.
+Each room lives in a [Cloudflare Durable Object](https://developers.cloudflare.com/durable-objects/)
+— a tiny per-room game server addressed by the room code. Every player,
+including the person who created the room, connects to it over a WebSocket.
+The room owns the authoritative game state, so briefly losing your
+connection (or refreshing the page) doesn't lose your seat: you're slotted
+back in with the same hand, and that goes for the host too. If the host
+deliberately leaves, the room closes for everyone. Idle rooms are purged
+automatically after several hours.
 
-### Internet connectivity and TURN
+### Backend deployment (Cloudflare Workers)
 
-Browsers first try to connect directly over WebRTC. Production builds also use
-an authenticated TURN relay when NAT or firewall rules prevent a direct path.
-The relay only forwards encrypted WebRTC packets; the host browser still owns
-the room and game state.
+The frontend is a static PWA on GitHub Pages; the backend is a single Worker
+(`worker/`) with the `RoomDO` Durable Object class. SQLite-backed Durable
+Objects work on the Workers free plan. CI deploys both on every push to
+`main`, and expects these GitHub Actions settings:
 
-Production deployment expects these GitHub Actions settings:
+- repository secret `CLOUDFLARE_API_TOKEN` — an API token with the
+  *Edit Cloudflare Workers* template permissions;
+- repository variable `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account id;
+- repository variable `VITE_WS_URL` — the deployed worker's WebSocket URL,
+  e.g. `wss://wildcard-api.<your-subdomain>.workers.dev` (Vite bakes it into
+  the frontend bundle).
 
-- repository variable `VITE_TURN_URLS` — comma-separated UDP and TCP TURN URLs;
-- repository variable `VITE_TURN_USERNAME` — the coturn application user;
-- repository secret `VITE_TURN_CREDENTIAL` — the matching password.
-
-Vite embeds all three values in browser JavaScript. The secret setting prevents
-accidental repository disclosure, but the resulting TURN credential is public
-and must be dedicated, quota-limited, and replaceable.
+To bootstrap the first deploy manually: `npx wrangler login` then
+`npm run deploy:worker` — the command prints the worker URL to use for
+`VITE_WS_URL`.
 
 Because it's a PWA, you can install WILDCARD to your home screen for a more
 app-like feel, and the app shell will still load if you open it again while
@@ -63,20 +68,21 @@ that's how players find each other).
 
 ## Development
 
-WILDCARD is a Svelte 5 app built with Vite. No backend — rooms connect
-directly between browsers over WebRTC.
+WILDCARD is a Svelte 5 app built with Vite, plus a small Cloudflare Worker
+backend (`worker/`) that runs one Durable Object per room.
 
 ```bash
-npm install       # install dependencies
-npm run dev       # local dev server
-npm test          # unit tests (vitest)
-npm run e2e       # end-to-end tests (playwright, real WebRTC)
+npm install        # install dependencies
+npm run dev:worker # local game server (wrangler dev on :8787)
+npm run dev        # local dev server (frontend; talks to :8787 by default)
+npm test           # unit tests (vitest)
+npm run e2e        # end-to-end tests (playwright, against a real local Worker)
 ```
 
 Other useful scripts: `npm run check` (svelte-check), `npm run build`
 (production build to `dist/`).
 
-Deploys to GitHub Pages automatically on every push to `main`, gated on the
-unit test suite. The end-to-end suite runs in its own workflow, spinning up a
-local dev server and a local PeerJS broker, over real WebRTC; it's
-informational and does not block deploys.
+Deploys automatically on every push to `main`, gated on the unit test suite:
+the Worker via `wrangler deploy`, then the frontend to GitHub Pages. The
+end-to-end suite runs in its own workflow, spinning up the Vite dev server and
+a local `wrangler dev` Worker; it's informational and does not block deploys.

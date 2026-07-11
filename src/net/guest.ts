@@ -1,18 +1,20 @@
-import type { Action } from '../engine/types';
+import type { Action, RuleConfig } from '../engine/types';
 import type { PublicNotice } from '../ui/public-notices';
-import { PROTOCOL_VERSION, type ServerMsg } from './protocol';
+import { PROTOCOL_VERSION, type ClientMsg, type RejectReason, type ServerMsg } from './protocol';
 import type { Connection, ConnectionHealth } from './transport';
 
 export interface GuestEvents {
   onWelcome(playerId: string, token: string): void;
   onLobby(lobby: import('./protocol').LobbyInfo): void;
   onView(view: import('../engine/types').PlayerView, notices?: PublicNotice[]): void;
-  onRejected(reason: 'version' | 'full' | 'started' | 'badToken'): void;
+  onRejected(reason: RejectReason): void;
   onError(message: string): void;
   onClosed(): void;
+  onRoomClosed(): void;
   onConnectionStatus(status: ConnectionHealth): void;
 }
 
+/** The client end for every player — the host is just the client seated at p0. */
 export class GuestSession {
   playerId: string | null = null;
 
@@ -20,6 +22,7 @@ export class GuestSession {
     private conn: Connection,
     name: string,
     token: string | null,
+    create: boolean,
     events: GuestEvents
   ) {
     conn.onMessage((raw) => {
@@ -42,28 +45,52 @@ export class GuestSession {
         case 'error':
           events.onError(msg.message);
           break;
+        case 'closed':
+          events.onRoomClosed();
+          break;
       }
     });
     conn.onClose(() => events.onClosed());
     conn.onStatus((status) => events.onConnectionStatus(status));
-    conn.send({ v: PROTOCOL_VERSION, type: 'hello', name, token });
+    conn.send({ v: PROTOCOL_VERSION, type: 'hello', name, token, create });
   }
 
   send(action: Action): void {
-    this.conn.send({ v: PROTOCOL_VERSION, type: 'intent', action });
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'intent', action });
   }
 
-  /** Deliberate exit: tell the host to free the seat now, then hang up. */
+  // Host commands — the room enforces that only seat p0 may issue these.
+  startGame(): void {
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'start' });
+  }
+
+  setConfig(config: RuleConfig): void {
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'config', config });
+  }
+
+  skipTurn(playerId: string): void {
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'skipTurn', playerId });
+  }
+
+  removeSeat(playerId: string): void {
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'removeSeat', playerId });
+  }
+
+  /** Deliberate exit: tell the room to free the seat now, then hang up. */
   leave(): void {
-    try {
-      this.conn.send({ v: PROTOCOL_VERSION, type: 'leave' });
-    } catch {
-      // The channel may already be dead — leaving must never throw.
-    }
+    this.sendMsg({ v: PROTOCOL_VERSION, type: 'leave' });
     this.conn.close();
   }
 
   close(): void {
     this.conn.close();
+  }
+
+  private sendMsg(msg: ClientMsg): void {
+    try {
+      this.conn.send(msg);
+    } catch {
+      // The channel may already be dead — outbound messages must never throw.
+    }
   }
 }

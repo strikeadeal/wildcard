@@ -1,4 +1,4 @@
-name: E2E over real WebRTC
+name: E2E against a local Worker
 on:
   workflow_dispatch:
   push:

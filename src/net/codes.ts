@@ -20,10 +20,6 @@ export function normalizeCode(input: string): string | null {
   return code;
 }
 
-export function codeToPeerId(code: string): string {
-  return 'wildcard-' + code;
-}
-
 /** Field-friendly validation for the join-code input: null while empty or valid. */
 export function validateCode(input: string): string | null {
   if (!input.trim()) return null;
