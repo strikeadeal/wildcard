@@ -116,7 +116,7 @@ export class RoomSession {
       } else if (!seat) {
         return; // everything below requires a seat
       } else if (msg.type === 'intent') {
-        this.handleIntent(seat, msg.action);
+        this.handleIntent(seat, msg.action, this.validIntentId(msg.intentId));
       } else if (msg.type === 'leave') {
         if (seat.id === HOST_ID) this.closeRoom();
         else this.removeSeat(seat.id);
@@ -221,21 +221,25 @@ export class RoomSession {
     conn.close();
   }
 
-  private handleIntent(seat: SeatRecord, action: Action): void {
+  private validIntentId(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  }
+
+  private handleIntent(seat: SeatRecord, action: Action, intentId?: number): void {
     if (!this.state) {
-      this.errorTo(seat, 'The game has not started yet');
+      this.errorTo(seat, 'The game has not started yet', intentId);
       return;
     }
     const before = this.state;
     const result = apply(before, seat.id, action);
     if (!result.ok) {
-      this.errorTo(seat, result.error);
+      this.errorTo(seat, result.error, intentId);
       return;
     }
     this.state = result.state;
     const notices = this.makeNotices(before, seat.id, action);
     this.lastNotices = notices;
-    this.broadcastViews(notices);
+    this.broadcastViews(notices, seat.id, intentId);
   }
 
   setConfig(config: RuleConfig): void {
@@ -382,8 +386,8 @@ export class RoomSession {
     }
   }
 
-  private errorTo(seat: SeatRecord, message: string): void {
-    if (seat.conn) this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'error', message });
+  private errorTo(seat: SeatRecord, message: string, intentId?: number): void {
+    if (seat.conn) this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'error', message, intentId });
   }
 
   private broadcastLobby(): void {
@@ -393,11 +397,17 @@ export class RoomSession {
     }
   }
 
-  private broadcastViews(notices: PublicNotice[] = []): void {
+  private broadcastViews(notices: PublicNotice[] = [], actorId?: string, intentId?: number): void {
     if (!this.state) return;
     for (const seat of this.seats) {
       if (seat.conn && playerIndex(this.state, seat.id) !== -1) {
-        this.send(seat.conn, { v: PROTOCOL_VERSION, type: 'view', view: redact(this.state, seat.id), notices });
+        this.send(seat.conn, {
+          v: PROTOCOL_VERSION,
+          type: 'view',
+          view: redact(this.state, seat.id),
+          notices,
+          intentId: seat.id === actorId ? intentId : undefined
+        });
       }
     }
   }

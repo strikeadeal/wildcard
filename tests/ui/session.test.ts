@@ -90,7 +90,7 @@ describe('session notice handling', () => {
     expect(session.lastPlayFromSelf).toBe(false);
   });
 
-  it('tracks an action synchronously until the server responds with a view or error', async () => {
+  it('suppresses duplicate actions while one is pending', async () => {
     const [guestEnd, serverEnd] = createLoopbackPair();
     const pendingDuringSend: Array<typeof session.pendingAction> = [];
     const inspectingGuestEnd: Connection = {
@@ -104,20 +104,45 @@ describe('session notice handling', () => {
     };
     socketMocks.connectRoom.mockResolvedValueOnce({ conn: inspectingGuestEnd, destroy: () => {} });
     await session.joinRoom('KP4XQ', 'Ada');
-    const action = { type: 'drawCard' } as const;
+    const action = { type: 'nextRound' } as const;
 
-    session.sendAction(action);
+    expect(session.sendAction(action)).toBe(true);
+    expect(session.sendAction(action)).toBe(false);
 
-    expect(pendingDuringSend[0]?.type).toBe('drawCard');
+    expect(pendingDuringSend).toHaveLength(1);
+    expect(pendingDuringSend[0]?.type).toBe('nextRound');
     expect(pendingDuringSend[0]?.startedAt).toEqual(expect.any(Number));
 
-    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view() });
+    const intentId = session.pendingAction!.intentId;
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view(), intentId });
     await Promise.resolve();
     expect(session.pendingAction).toBeNull();
 
     session.sendAction(action);
-    serverEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Action rejected' });
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Action rejected', intentId: session.pendingAction!.intentId });
     await Promise.resolve();
+    expect(session.pendingAction).toBeNull();
+  });
+
+  it('keeps an action pending through unrelated views until its matching acknowledgement', async () => {
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: guestEnd, destroy: () => {} });
+    await session.joinRoom('KP4XQ', 'Ada');
+
+    session.sendAction({ type: 'drawCard' });
+    const intentId = session.pendingAction!.intentId;
+
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view({ turnPlayerId: 'p1' }) });
+    await Promise.resolve();
+    expect(session.pendingAction?.intentId).toBe(intentId);
+
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view(), intentId });
+    await Promise.resolve();
+    expect(session.pendingAction).toBeNull();
+  });
+
+  it('does not create pending state when no guest is connected', () => {
+    expect(session.sendAction({ type: 'nextRound' })).toBe(false);
     expect(session.pendingAction).toBeNull();
   });
 

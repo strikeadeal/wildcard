@@ -57,7 +57,8 @@ class Session {
   roomCode = $state<string | null>(null);
   lobby = $state<LobbyInfo | null>(null);
   view = $state<PlayerView | null>(null);
-  pendingAction = $state<{ type: Action['type']; startedAt: number } | null>(null);
+  pendingAction = $state<{ type: Action['type']; startedAt: number; intentId: number } | null>(null);
+  private nextIntentId = 1;
   toast = $state<string | null>(null);
   noticeHistory = $state<PublicNotice[]>([]);
   noticeQueue = $state<PublicNotice[]>([]);
@@ -172,8 +173,8 @@ class Session {
    * queue/history state when present; otherwise older hosts still fall back to
    * deriving animation changes by diffing consecutive views.
    */
-  private handleView(view: PlayerView, notices: PublicNotice[] = []): void {
-    this.pendingAction = null;
+  private handleView(view: PlayerView, notices: PublicNotice[] = [], intentId?: number): void {
+    if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
     if (this.view && this.view.phase !== 'roundEnd' && view.phase === 'roundEnd') {
       this.markReturningPlayer();
     }
@@ -211,8 +212,8 @@ class Session {
     }
   }
 
-  private handleGuestError(message: string): void {
-    this.pendingAction = null;
+  private handleGuestError(message: string, intentId?: number): void {
+    if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
     this.showToast(message);
   }
 
@@ -309,9 +310,9 @@ class Session {
             this.recovery = nextRecoveryState(this.recovery, { type: 'rejoined' });
             finish('joined');
           },
-          onView: (view, notices) => {
+          onView: (view, notices, intentId) => {
             if (!adopt()) return;
-            this.handleView(view, notices);
+            this.handleView(view, notices, intentId);
             finish('joined');
           },
           onRejected: (reason) => {
@@ -329,8 +330,8 @@ class Session {
             }
             finish('networkFailed');
           },
-          onError: () => {
-            this.pendingAction = null;
+          onError: (_message, intentId) => {
+            if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
           },
           onClosed: () => finish('networkFailed'),
           onRoomClosed: () => finish('roomMissing'),
@@ -420,9 +421,9 @@ class Session {
             this.screen = 'lobby';
             finish('created');
           },
-          onView: (view, notices) => this.handleView(view, notices),
+          onView: (view, notices, intentId) => this.handleView(view, notices, intentId),
           onRejected: (reason) => finish(reason === 'codeTaken' ? 'codeTaken' : 'failed'),
-          onError: (message) => this.handleGuestError(message),
+          onError: (message, intentId) => this.handleGuestError(message, intentId),
           onClosed: () => {
             if (settled) this.handleGuestClosed();
             else finish('failed');
@@ -469,14 +470,14 @@ class Session {
           this.lobby = lobby;
           this.screen = 'lobby';
         },
-        onView: (view, notices) => this.handleView(view, notices),
+        onView: (view, notices, intentId) => this.handleView(view, notices, intentId),
         onRejected: (reason) => {
           if (typeof localStorage !== 'undefined' && (reason === 'badToken' || reason === 'notFound')) {
             localStorage.removeItem(tokenKey(code));
           }
           this.fail(fatalFromRejection(reason));
         },
-        onError: (message) => this.handleGuestError(message),
+        onError: (message, intentId) => this.handleGuestError(message, intentId),
         onClosed: () => this.handleGuestClosed(),
         onRoomClosed: () => this.handleRoomClosed(),
         onConnectionStatus: (status) => this.handleGuestStatus(status)
@@ -520,9 +521,12 @@ class Session {
     void this.createRoom(name);
   }
 
-  sendAction(action: Action): void {
-    this.pendingAction = { type: action.type, startedAt: Date.now() };
-    this.guest?.send(action);
+  sendAction(action: Action): boolean {
+    if (this.pendingAction || !this.guest) return false;
+    const intentId = this.nextIntentId++;
+    this.pendingAction = { type: action.type, startedAt: Date.now(), intentId };
+    this.guest.send(action, intentId);
+    return true;
   }
 
   startGame(): void {

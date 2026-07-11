@@ -203,6 +203,37 @@ describe('RoomSession', () => {
     expect(host.last('view')?.notices?.every((n) => Number.isInteger(n.id))).toBe(true);
   });
 
+  it('acknowledges an intent only on the acting player response', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    host.cmd({ type: 'start' });
+    await flush();
+    room.state = fixedTwoPlayerState();
+
+    a.cmd({ type: 'intent', action: { type: 'playCard', cardId: 9001 }, intentId: 41 });
+    await flush();
+
+    expect(a.last('view')?.intentId).toBe(41);
+    expect(host.last('view')?.intentId).toBeUndefined();
+  });
+
+  it('echoes an intent id on an action error and accepts legacy intents without one', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Ada');
+    await flush();
+    host.cmd({ type: 'start' });
+    await flush();
+
+    a.cmd({ type: 'intent', action: { type: 'callUno' }, intentId: 42 });
+    await flush();
+    expect(a.last('error')?.intentId).toBe(42);
+
+    expect(() => a.cmd({ type: 'intent', action: { type: 'callUno' } })).not.toThrow();
+  });
+
   it('marks disconnects and restores a seat on token rejoin', async () => {
     const host = await createdRoom(room);
     const a = new Wire(room);

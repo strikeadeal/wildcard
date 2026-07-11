@@ -14,6 +14,7 @@
     [...(view?.players ?? [])].sort((a, b) => b.score - a.score)
   );
   const topScore = $derived(ranked[0]?.score ?? 0);
+  const nextRoundPending = $derived(session.pendingAction?.type === 'nextRound');
 
   const reduce = prefersReducedMotion();
   // One shared 0→1 progress drives every row's count-up.
@@ -39,7 +40,7 @@
     </table>
 
     {#if session.isHost}
-      <button class="primary" onclick={() => session.sendAction({ type: 'nextRound' })}>Next round</button>
+      <button class="primary" class:action-pending={nextRoundPending} disabled={session.pendingAction !== null} onclick={() => session.sendAction({ type: 'nextRound' })}>{nextRoundPending ? 'Dealing…' : 'Next round'}</button>
     {:else}
       <p class="hint">Waiting for the host to deal the next round…</p>
     {/if}

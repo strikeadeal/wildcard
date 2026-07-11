@@ -78,6 +78,20 @@ describe('GuestSession', () => {
     expect(events.onError).toHaveBeenCalled();
   });
 
+  it('passes intent acknowledgements through views and errors', async () => {
+    const [guestEnd, roomEnd] = createLoopbackPair();
+    const events = guestEvents();
+    new GuestSession(guestEnd, 'Ada', null, false, events);
+    await flush();
+
+    roomEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: {} as any, intentId: 7 });
+    roomEnd.send({ v: PROTOCOL_VERSION, type: 'error', message: 'Nope', intentId: 8 });
+    await flush();
+
+    expect(events.onView).toHaveBeenCalledWith({}, undefined, 7);
+    expect(events.onError).toHaveBeenCalledWith('Nope', 8);
+  });
+
   it('passes optional notices through onView', async () => {
     const [guestEnd, roomEnd] = createLoopbackPair();
     const events = guestEvents();
@@ -115,7 +129,8 @@ describe('GuestSession', () => {
 
     expect(events.onView).toHaveBeenLastCalledWith(
       expect.objectContaining({ turnPlayerId: 'p1' }),
-      [{ id: 1, kind: 'draw', actorId: 'p1', count: 1 }]
+      [{ id: 1, kind: 'draw', actorId: 'p1', count: 1 }],
+      undefined
     );
   });
 
