@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { PlayerView } from '../../src/engine/types';
+import { DEFAULT_RULES, type PlayerView } from '../../src/engine/types';
 import { PROTOCOL_VERSION } from '../../src/net/protocol';
 import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { C } from '../engine/fixtures';
@@ -64,6 +64,7 @@ describe('session notice handling', () => {
   afterEach(() => {
     session.leave();
     storage.clear();
+    vi.useRealTimers();
   });
 
   it('refreshes lastPlayFromSelf from view diffs even when notices are transported', () => {
@@ -165,12 +166,53 @@ describe('session notice handling', () => {
     storage.set('wildcard:token:KP4XQ', 'stale-token');
     session.screen = 'game';
     session.recovery = 'reconnecting';
+    session.setOnline(true);
     (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
     (session as any).tryRejoinOnce = async () => 'seatUnavailable';
 
     await (session as any).recoverGuest();
 
     expect(session.recovery).toBe('seatUnavailable');
+  });
+
+  it('keeps retrying recoverable failures until a later attempt joins', async () => {
+    vi.useFakeTimers();
+    const attempt = vi.fn()
+      .mockResolvedValueOnce('networkFailed')
+      .mockResolvedValueOnce('networkFailed')
+      .mockResolvedValueOnce('networkFailed')
+      .mockResolvedValueOnce('joined');
+    (session as any).tryRejoinOnce = attempt;
+    session.screen = 'game';
+    session.recovery = 'reconnecting';
+    session.setOnline(true);
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+
+    const recovery = (session as any).recoverGuest();
+    await vi.advanceTimersByTimeAsync(7000);
+    await recovery;
+
+    expect(attempt).toHaveBeenCalledTimes(4);
+    delete (session as any).tryRejoinOnce;
+  });
+
+  it('does not reconnect while offline and wakes immediately when online', async () => {
+    vi.useFakeTimers();
+    const attempt = vi.fn().mockResolvedValue('joined');
+    (session as any).tryRejoinOnce = attempt;
+    session.screen = 'game';
+    session.recovery = 'reconnecting';
+    session.setOnline(false);
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+
+    const recovery = (session as any).recoverGuest();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(attempt).not.toHaveBeenCalled();
+
+    session.setOnline(true);
+    await recovery;
+    expect(attempt).toHaveBeenCalledTimes(1);
+    delete (session as any).tryRejoinOnce;
   });
 
   it('bumps selectionEpoch when recovery starts and when a recovered view arrives', () => {
@@ -216,6 +258,32 @@ describe('session notice handling', () => {
     await Promise.resolve();
 
     expect(intents).toEqual([{ v: PROTOCOL_VERSION, type: 'intent', action: { type: 'drawCard' }, intentId: 'stable-client-id' }]);
+  });
+
+  it('continues processing authoritative views after recovery is adopted', async () => {
+    delete (session as any).tryRejoinOnce;
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    serverEnd.onMessage((message) => {
+      if ((message as any).type === 'hello') {
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'welcome', playerId: 'p1', token: 'seat-token' });
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'lobby', lobby: {
+          players: [], hostId: 'p0', config: DEFAULT_RULES, started: false, canStart: false
+        } });
+      }
+    });
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: guestEnd, destroy: () => {} });
+    storage.set('wildcard:token:KP4XQ', 'seat-token');
+    session.screen = 'lobby';
+    session.recovery = 'reconnecting';
+    session.setOnline(true);
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+
+    expect(await (session as any).tryRejoinOnce()).toBe('joined');
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view({ turnPlayerId: 'p1' }) });
+    await Promise.resolve();
+
+    expect(session.screen).toBe('game');
+    expect(session.view?.turnPlayerId).toBe('p1');
   });
 
   it('a deliberate leave notifies the host and forgets the dead seat token', () => {

@@ -9,6 +9,7 @@ import { nextRecoveryState, type RecoveryState } from './connection-state';
 import { appendNoticeQueue, mergeNoticeHistory } from './notice-queue';
 import { nextDiscardPile } from './discard-pile';
 import type { PublicNotice } from './public-notices';
+import { ReconnectGate, reconnectDelay } from './reconnect-policy';
 
 export type Screen = 'home' | 'connecting' | 'lobby' | 'game' | 'fatal';
 export type Operation = 'create' | 'join' | 'rejoin' | null;
@@ -96,6 +97,7 @@ class Session {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private fxNonce = 0;
+  private reconnectGate = new ReconnectGate();
   /** True when the most recent fail() happened during a create, not a join. */
   private lastFailWasCreate = false;
   /**
@@ -119,6 +121,7 @@ class Session {
 
   setOnline(value: boolean): void {
     this.online = value;
+    if (value && this.recovery === 'reconnecting') this.reconnectGate.wake();
   }
 
   captureInstallPrompt(event: Event): void {
@@ -236,9 +239,13 @@ class Session {
 
   private async recoverGuest(): Promise<void> {
     if (!this.lastJoin || this.recovery !== 'reconnecting') return;
-    for (const delay of [0, 1500]) {
-      if (delay) await new Promise((r) => setTimeout(r, delay));
+    const epoch = this.epoch;
+    let attempt = 0;
+    while (this.lastJoin && this.recovery === 'reconnecting' && this.epoch === epoch) {
+      const ready = await this.reconnectGate.wait(reconnectDelay(attempt), this.online);
+      if (ready === 'cancelled') return;
       if (!this.lastJoin || this.recovery !== 'reconnecting') return;
+      if (!this.online) continue;
       const outcome = await this.tryRejoinOnce();
       if (!this.lastJoin || this.recovery !== 'reconnecting') return;
       if (outcome === 'joined') return;
@@ -250,9 +257,7 @@ class Session {
         this.recovery = nextRecoveryState(this.recovery, { type: 'seatMissing' });
         return;
       }
-    }
-    if (this.recovery === 'reconnecting') {
-      this.recovery = nextRecoveryState(this.recovery, { type: 'networkFailed' });
+      attempt++;
     }
   }
 
@@ -275,6 +280,7 @@ class Session {
         let nextToken: string | null = token;
         let candidate: GuestSession | null = null;
         let replayedPending = false;
+        let adopted = false;
         const dispose = () => {
           candidate?.close();
           destroy();
@@ -286,12 +292,14 @@ class Session {
           resolve(outcome);
         };
         const adopt = (): boolean => {
+          if (adopted) return this.guest === candidate && this.epoch === epoch;
           if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
             finish('networkFailed');
             return false;
           }
           this.destroyPeer = destroy;
           this.guest = candidate;
+          adopted = true;
           if (nextPlayerId) this.playerId = nextPlayerId;
           if (nextToken) writeStorage(tokenKey(code), nextToken);
           return true;
@@ -335,11 +343,20 @@ class Session {
             finish('networkFailed');
           },
           onError: (_message, intentId) => {
-            if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
+            if (adopted) this.handleGuestError(_message, intentId);
+            else if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
           },
-          onClosed: () => finish('networkFailed'),
-          onRoomClosed: () => finish('roomMissing'),
-          onConnectionStatus: () => {}
+          onClosed: () => {
+            if (adopted && settled) this.handleGuestClosed();
+            else finish('networkFailed');
+          },
+          onRoomClosed: () => {
+            if (adopted && settled) this.handleRoomClosed();
+            else finish('roomMissing');
+          },
+          onConnectionStatus: (status) => {
+            if (adopted) this.handleGuestStatus(status);
+          }
         });
       });
     } catch {
@@ -355,6 +372,7 @@ class Session {
   }
 
   private fail(reason: FatalReason): void {
+    this.reconnectGate.cancel();
     this.lastFailWasCreate = this.operation === 'create';
     this.operation = null;
     this.recovery = nextRecoveryState(this.recovery, { type: 'cancelled' });
@@ -505,6 +523,7 @@ class Session {
     if (this.recovery !== 'networkUnavailable') return;
     this.bumpSelectionEpoch();
     this.recovery = nextRecoveryState(this.recovery, { type: 'retryStarted' });
+    this.reconnectGate.wake();
     void this.recoverGuest();
   }
 
@@ -560,6 +579,7 @@ class Session {
 
   leave(): void {
     this.epoch++;
+    this.reconnectGate.cancel();
     if (this.guest && this.roomCode) {
       // Deliberate exit: the host frees the seat immediately, so the stored
       // token now points at nothing — drop it or a later rejoin of the same

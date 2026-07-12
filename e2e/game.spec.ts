@@ -256,6 +256,74 @@ test('a disconnected guest can rejoin and keep their seat', async ({ browser }) 
   await guestCtx.close();
 });
 
+test('a disconnected lobby seat is reserved until the guest automatically rejoins', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+
+  try {
+    const code = await createRoom(host, 'Hana');
+    await joinRoom(guest, code, 'Gil');
+    await expectLobbyPlayer(host, 'Gil', 20_000);
+
+    await guestCtx.setOffline(true);
+    await dropConnection(guest);
+    await expect(host.locator('.seats li').filter({ hasText: 'Gil' }).getByText('Away'))
+      .toBeVisible({ timeout: 20_000 });
+    await expect(host.getByRole('button', { name: 'Waiting for players…' })).toBeDisabled();
+
+    await guestCtx.setOffline(false);
+    await expect(host.getByRole('button', { name: 'Start game' })).toBeEnabled({ timeout: 20_000 });
+    await expect(host.locator('.seats li').filter({ hasText: 'Gil' }).getByText('Away')).toHaveCount(0);
+
+    await host.getByRole('button', { name: 'Start game' }).click();
+    await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+    await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  } finally {
+    await hostCtx.close();
+    await guestCtx.close();
+  }
+});
+
+test('malformed traffic is rejected without interrupting valid lobby players', async ({ browser }) => {
+  const hostCtx = await browser.newContext();
+  const guestCtx = await browser.newContext();
+  const host = await hostCtx.newPage();
+  const guest = await guestCtx.newPage();
+
+  try {
+    const code = await createRoom(host, 'Hana');
+    await joinRoom(guest, code, 'Gil');
+    await expectLobbyPlayer(host, 'Gil', 20_000);
+
+    const response = await host.evaluate((roomCode) => new Promise<string>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:8787/room/${roomCode}`);
+      const timer = setTimeout(() => reject(new Error('raw socket timed out')), 10_000);
+      ws.onopen = () => ws.send(JSON.stringify({ v: 2, type: 'hello', name: 'Probe', token: null, create: false }));
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(String(event.data));
+        if (msg.type === 'welcome') ws.send(JSON.stringify({ v: 2, type: 'intent', action: null }));
+        if (msg.type === 'error') {
+          ws.send(JSON.stringify({ v: 2, type: 'leave' }));
+          clearTimeout(timer);
+          resolve(msg.message);
+        }
+      };
+      ws.onerror = () => reject(new Error('raw socket failed'));
+    }), code);
+    expect(response).toBe('Invalid message');
+
+    await expect(host.getByRole('button', { name: 'Start game' })).toBeEnabled({ timeout: 20_000 });
+    await host.getByRole('button', { name: 'Start game' }).click();
+    await expect(host.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+    await expect(guest.locator('.hand .card')).toHaveCount(7, { timeout: 20_000 });
+  } finally {
+    await hostCtx.close();
+    await guestCtx.close();
+  }
+});
+
 test('the room survives the host dropping and rejoining mid-game', async ({ browser }) => {
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
