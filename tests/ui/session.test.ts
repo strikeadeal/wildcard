@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { PlayerView } from '../../src/engine/types';
+import { DEFAULT_RULES, type PlayerView } from '../../src/engine/types';
 import { PROTOCOL_VERSION } from '../../src/net/protocol';
 import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { C } from '../engine/fixtures';
@@ -258,6 +258,32 @@ describe('session notice handling', () => {
     await Promise.resolve();
 
     expect(intents).toEqual([{ v: PROTOCOL_VERSION, type: 'intent', action: { type: 'drawCard' }, intentId: 'stable-client-id' }]);
+  });
+
+  it('continues processing authoritative views after recovery is adopted', async () => {
+    delete (session as any).tryRejoinOnce;
+    const [guestEnd, serverEnd] = createLoopbackPair();
+    serverEnd.onMessage((message) => {
+      if ((message as any).type === 'hello') {
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'welcome', playerId: 'p1', token: 'seat-token' });
+        serverEnd.send({ v: PROTOCOL_VERSION, type: 'lobby', lobby: {
+          players: [], hostId: 'p0', config: DEFAULT_RULES, started: false, canStart: false
+        } });
+      }
+    });
+    socketMocks.connectRoom.mockResolvedValueOnce({ conn: guestEnd, destroy: () => {} });
+    storage.set('wildcard:token:KP4XQ', 'seat-token');
+    session.screen = 'lobby';
+    session.recovery = 'reconnecting';
+    session.setOnline(true);
+    (session as any).lastJoin = { code: 'KP4XQ', name: 'Ada' };
+
+    expect(await (session as any).tryRejoinOnce()).toBe('joined');
+    serverEnd.send({ v: PROTOCOL_VERSION, type: 'view', view: view({ turnPlayerId: 'p1' }) });
+    await Promise.resolve();
+
+    expect(session.screen).toBe('game');
+    expect(session.view?.turnPlayerId).toBe('p1');
   });
 
   it('a deliberate leave notifies the host and forgets the dead seat token', () => {

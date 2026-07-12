@@ -280,6 +280,7 @@ class Session {
         let nextToken: string | null = token;
         let candidate: GuestSession | null = null;
         let replayedPending = false;
+        let adopted = false;
         const dispose = () => {
           candidate?.close();
           destroy();
@@ -291,12 +292,14 @@ class Session {
           resolve(outcome);
         };
         const adopt = (): boolean => {
+          if (adopted) return this.guest === candidate && this.epoch === epoch;
           if (this.epoch !== epoch || this.recovery !== 'reconnecting') {
             finish('networkFailed');
             return false;
           }
           this.destroyPeer = destroy;
           this.guest = candidate;
+          adopted = true;
           if (nextPlayerId) this.playerId = nextPlayerId;
           if (nextToken) writeStorage(tokenKey(code), nextToken);
           return true;
@@ -340,11 +343,20 @@ class Session {
             finish('networkFailed');
           },
           onError: (_message, intentId) => {
-            if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
+            if (adopted) this.handleGuestError(_message, intentId);
+            else if (this.pendingAction?.intentId === intentId) this.pendingAction = null;
           },
-          onClosed: () => finish('networkFailed'),
-          onRoomClosed: () => finish('roomMissing'),
-          onConnectionStatus: () => {}
+          onClosed: () => {
+            if (adopted && settled) this.handleGuestClosed();
+            else finish('networkFailed');
+          },
+          onRoomClosed: () => {
+            if (adopted && settled) this.handleRoomClosed();
+            else finish('roomMissing');
+          },
+          onConnectionStatus: (status) => {
+            if (adopted) this.handleGuestStatus(status);
+          }
         });
       });
     } catch {
