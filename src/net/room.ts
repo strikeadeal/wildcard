@@ -5,6 +5,7 @@ import { redact } from '../engine/redact';
 import type { Action, GameState, RuleConfig } from '../engine/types';
 import { DEFAULT_RULES } from '../engine/types';
 import { deriveActionNotices, deriveConnectionNotice, type PublicNotice } from '../ui/public-notices';
+import { decodeClientMsg } from './decode-client-msg';
 import { PROTOCOL_VERSION, type ClientMsg, type LobbyInfo, type ServerMsg } from './protocol';
 import type { Connection } from './transport';
 
@@ -107,8 +108,17 @@ export class RoomSession {
   private wire(conn: Connection, initialSeat: SeatRecord | null): void {
     let seat: SeatRecord | null = initialSeat;
     conn.onMessage((raw) => {
-      const msg = raw as ClientMsg;
-      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
+      const decoded = decodeClientMsg(raw);
+      if (!decoded.ok) {
+        if (decoded.reason === 'version') {
+          this.send(conn, { v: PROTOCOL_VERSION, type: 'rejected', reason: 'version' });
+        } else if (seat) {
+          this.errorTo(seat, 'Invalid message');
+        }
+        if (!seat || decoded.reason === 'version') conn.close();
+        return;
+      }
+      const msg: ClientMsg = decoded.msg;
       if (msg.v !== PROTOCOL_VERSION) {
         this.send(conn, { v: PROTOCOL_VERSION, type: 'rejected', reason: 'version' });
         conn.close();
@@ -138,11 +148,8 @@ export class RoomSession {
       if (!seat || seat.conn !== conn) return; // superseded by a rejoin
       seat.conn = null;
       if (!this.state && seat.id !== HOST_ID) {
-        // Pre-game, a dropped guest seat is freed: their auto-rejoin simply
-        // seats them fresh, and no "Away" ghost lingers if they never return.
-        // The host seat is always reserved — p0 is the room's identity.
-        const idx = this.seats.indexOf(seat);
-        if (idx !== -1) this.seats.splice(idx, 1);
+        // Preserve the token-bound lobby seat through transient disconnects.
+        // The host may explicitly remove an abandoned seat before starting.
         this.broadcastLobby();
         return;
       }
@@ -260,19 +267,16 @@ export class RoomSession {
     this.broadcastLobby();
   }
 
-  /** Seats currently at the table: everyone with a live connection. */
-  private presentSeats(): SeatRecord[] {
-    return this.seats.filter((s) => s.conn !== null);
-  }
-
   private startGame(hostSeat: SeatRecord): void {
     if (this.state) return;
-    const present = this.presentSeats();
-    if (present.length < 2) {
+    if (this.seats.length < 2) {
       this.errorTo(hostSeat, 'You need at least one other player');
       return;
     }
-    this.seats = present;
+    if (this.seats.some((seat) => seat.conn === null)) {
+      this.errorTo(hostSeat, 'Wait for away players to rejoin or remove them');
+      return;
+    }
     this.state = createGame(
       this.seats.map((s) => ({ id: s.id, name: s.name })),
       this.config,
@@ -347,7 +351,7 @@ export class RoomSession {
       hostId: HOST_ID,
       config: this.config,
       started: this.state !== null,
-      canStart: this.presentSeats().length >= 2
+      canStart: this.seats.length >= 2 && this.seats.every((seat) => seat.conn !== null)
     };
   }
 

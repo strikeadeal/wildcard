@@ -357,16 +357,15 @@ describe('RoomSession', () => {
     expect(room.lastNotices).toEqual([]);
   });
 
-  it('does not throw on a malformed hello (non-string name/token) and still seats the guest', async () => {
+  it('rejects a malformed hello without creating a seat', async () => {
     await createdRoom(room);
     const w = new Wire(room);
     expect(() => w.conn.send({ v: PROTOCOL_VERSION, type: 'hello', name: 42 as any, token: 7 as any, create: false }))
       .not.toThrow();
     await flush();
-    expect(w.last('welcome')?.playerId).toBe('p1');
-    const name = w.last('lobby')?.lobby.players.find((p) => p.id === 'p1')?.name;
-    expect(typeof name).toBe('string');
-    expect(name!.length).toBeGreaterThan(0);
+    expect(w.last('welcome')).toBeUndefined();
+    expect(w.closed).toBe(true);
+    expect(room.lobbyInfo().players.map((p) => p.id)).toEqual(['p0']);
   });
 
   it('a single connection sending hello twice (no token) only occupies one seat', async () => {
@@ -380,14 +379,46 @@ describe('RoomSession', () => {
     expect(lobby.players).toHaveLength(2); // host + one guest, not two guests
   });
 
-  it('frees a guest seat on a lobby drop, but always reserves p0', async () => {
+  it('reserves a guest lobby seat and reclaims the same id by token', async () => {
+    const host = await createdRoom(room);
+    const a = new Wire(room);
+    a.hello('Libby');
+    await flush();
+    const token = a.last('welcome')!.token;
+    a.conn.close();
+    await flush();
+    expect(room.lobbyInfo().players).toEqual([
+      { id: 'p0', name: 'Host', connected: true },
+      { id: 'p1', name: 'Libby', connected: false }
+    ]);
+    expect(room.lobbyInfo().canStart).toBe(false);
+
+    host.cmd({ type: 'start' });
+    await flush();
+    expect(room.state).toBeNull();
+    expect(host.last('error')?.message).toContain('rejoin');
+
+    const retry = new Wire(room);
+    retry.hello('Libby', token);
+    await flush();
+    expect(retry.last('welcome')?.playerId).toBe('p1');
+    expect(room.lobbyInfo().players).toEqual([
+      { id: 'p0', name: 'Host', connected: true },
+      { id: 'p1', name: 'Libby', connected: true }
+    ]);
+    expect(room.lobbyInfo().canStart).toBe(true);
+  });
+
+  it('reserves p0 and lets the host explicitly remove an away lobby guest', async () => {
     const host = await createdRoom(room);
     const a = new Wire(room);
     a.hello('Libby');
     await flush();
     a.conn.close();
     await flush();
-    // Pre-game there is nothing to hold a guest seat for — gone, not "Away".
+
+    host.cmd({ type: 'removeSeat', playerId: 'p1' });
+    await flush();
     expect(room.lobbyInfo().players.map((p) => p.id)).toEqual(['p0']);
 
     host.conn.close();
@@ -397,10 +428,20 @@ describe('RoomSession', () => {
       { id: 'p0', name: 'Host', connected: false }
     ]);
 
-    const retry = new Wire(room);
-    retry.hello('Libby');
+  });
+
+  it('rejects malformed seated messages without mutating room state', async () => {
+    const host = await createdRoom(room);
+    const before = structuredClone(room.snapshot());
+
+    host.conn.send({ v: PROTOCOL_VERSION, type: 'intent', action: null });
     await flush();
-    expect(room.lobbyInfo().players.map((p) => p.name)).toEqual(['Host', 'Libby']);
+    expect(host.last('error')?.message).toBe('Invalid message');
+    expect(room.snapshot()).toEqual(before);
+
+    host.conn.send({ v: PROTOCOL_VERSION, type: 'config', config: { stacking: true } });
+    await flush();
+    expect(room.snapshot()).toEqual(before);
   });
 
   it('a leave message mid-game deals the player out and the game continues', async () => {
