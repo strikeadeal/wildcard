@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { RoomSession } from '../../src/net/room';
+import { RoomSession, type RoomEvent } from '../../src/net/room';
 import { createLoopbackPair, type Connection } from '../../src/net/transport';
 import { PROTOCOL_VERSION, type ServerMsg } from '../../src/net/protocol';
 import { DEFAULT_RULES, type GameState } from '../../src/engine/types';
@@ -442,6 +442,37 @@ describe('RoomSession', () => {
     host.conn.send({ v: PROTOCOL_VERSION, type: 'config', config: { stacking: true } });
     await flush();
     expect(room.snapshot()).toEqual(before);
+  });
+
+  it('emits categorical lifecycle events without names or tokens', async () => {
+    const events: RoomEvent[] = [];
+    let tokenNumber = 0;
+    const observed = new RoomSession(
+      () => `secret-seat-token-${tokenNumber++}`,
+      () => 1,
+      (event) => events.push(event)
+    );
+    const host = await createdRoom(observed, 'Sensitive Name');
+    const guest = new Wire(observed);
+    guest.hello('Private Guest');
+    await flush();
+    const token = guest.last('welcome')!.token;
+    guest.conn.close();
+    await flush();
+    const back = new Wire(observed);
+    back.hello('Private Guest', token);
+    await flush();
+    host.conn.send({ v: PROTOCOL_VERSION, type: 'intent', action: null });
+    await flush();
+
+    expect(events).toContainEqual({ kind: 'roomCreated', playerId: 'p0' });
+    expect(events).toContainEqual({ kind: 'seatDisconnected', playerId: 'p1' });
+    expect(events).toContainEqual({ kind: 'seatReclaimed', playerId: 'p1' });
+    expect(events).toContainEqual({ kind: 'protocolRejected', playerId: 'p0', reason: 'payload' });
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain('secret-seat-token-');
+    expect(serialized).not.toContain('Sensitive Name');
+    expect(serialized).not.toContain('Private Guest');
   });
 
   it('a leave message mid-game deals the player out and the game continues', async () => {

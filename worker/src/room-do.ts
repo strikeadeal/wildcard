@@ -1,4 +1,4 @@
-import { RoomSession, type RoomSnapshot } from '../../src/net/room';
+import { RoomSession, type RoomEvent, type RoomSnapshot } from '../../src/net/room';
 import type { Connection } from '../../src/net/transport';
 import type { Env } from './index';
 
@@ -33,8 +33,8 @@ export class RoomDO {
     this.ctx.blockConcurrencyWhile(async () => {
       const snap = await this.ctx.storage.get<RoomSnapshot>(SNAPSHOT_KEY);
       this.session = snap
-        ? RoomSession.restore(snap, undefined, newSeed)
-        : new RoomSession(undefined, newSeed);
+        ? RoomSession.restore(snap, undefined, newSeed, (event) => this.logEvent(event))
+        : new RoomSession(undefined, newSeed, (event) => this.logEvent(event));
       for (const ws of this.ctx.getWebSockets()) {
         const adapter = this.makeAdapter(ws);
         const token = (ws.deserializeAttachment() as Attachment | null)?.token;
@@ -88,12 +88,14 @@ export class RoomDO {
   }
 
   async webSocketError(ws: WebSocket): Promise<void> {
+    console.warn(JSON.stringify({ component: 'room', kind: 'socketError' }));
     return this.webSocketClose(ws);
   }
 
   /** Expiry sweep: a room nobody is connected to gets purged. */
   async alarm(): Promise<void> {
     if (this.ctx.getWebSockets().length === 0) {
+      console.info(JSON.stringify({ component: 'room', kind: 'roomExpired' }));
       await this.ctx.storage.deleteAll();
     } else {
       await this.ctx.storage.setAlarm(Date.now() + EXPIRE_AFTER_MS);
@@ -152,5 +154,11 @@ export class RoomDO {
     };
     this.adapters.set(ws, adapter);
     return adapter;
+  }
+
+  private logEvent(event: RoomEvent): void {
+    const line = JSON.stringify({ component: 'room', ...event });
+    if (event.kind === 'protocolRejected') console.warn(line);
+    else console.info(line);
   }
 }
