@@ -44,6 +44,10 @@ back in with the same hand, and that goes for the host too. If the host
 deliberately leaves, the room closes for everyone. Idle rooms are purged
 automatically after several hours.
 
+In the lobby, a disconnected player's seat is reserved too. The round waits
+until they return, or until the host removes the abandoned seat; deliberately
+leaving still gives the seat up immediately.
+
 ### Backend deployment (Cloudflare Workers)
 
 The frontend is a static PWA on GitHub Pages; the backend is a single Worker
